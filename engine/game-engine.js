@@ -434,60 +434,88 @@ const Engine = {
     executeTrainModel(state, playerId, workerCount) {
         const player = this.getPlayer(state, playerId);
         const mods = this.getPlayerModifiers(state, playerId);
-        const nextV = player.modelVersion + 1;
-        if (nextV > 7) return {error: "Maximum Model Version reached."};
-        const baseReq = Config.MODEL_WORKER_COSTS[nextV] || 1;
-        const finalReq = Math.max(0, baseReq + mods.model_worker_cost_offset - player.tempModelCostWorkerReduction);
-        if (workerCount < finalReq) return {error: `Insufficient Tech Workers. Need ${finalReq}.`};
-        if (player.computeLevel < nextV) return {error: `Insufficient Compute Level. Need ${nextV}.`};
-        if (player.netWorthLevel < (Config.MODEL_NET_WORTH_REQ[nextV] || 0)) return {error: "Net Worth too low."};
+        const startV = player.modelVersion;
 
-        player.modelVersion = nextV;
-        player.reputation = this.clampRep(player.reputation + 1);
-        if (player.tempTrainModelPerRegionPowerBonus) {
-            player.power = this.clampPower(player.power + player.presenceCount);
-            player.tempTrainModelPerRegionPowerBonus = false;
-        } else {
-            player.power = this.clampPower(player.power + Math.floor(player.presenceCount / 2));
-        }
-        this.updatePlayerIncome(state, player);
-        this.checkReputationTiles(state, playerId);
+        // Validate at least the first upgrade up front so we return the
+        // same "Insufficient ..." messages the projection assumed.
+        const firstNext = startV + 1;
+        if (firstNext > 7) return {error: "Maximum Model Version reached."};
+        const firstReq = Math.max(0, (Config.MODEL_WORKER_COSTS[firstNext] || 1) + mods.model_worker_cost_offset - player.tempModelCostWorkerReduction);
+        if (workerCount < firstReq) return {error: `Insufficient Tech Workers. Need ${firstReq}.`};
+        if (player.computeLevel < firstNext) return {error: `Insufficient Compute Level. Need ${firstNext}.`};
+        if (player.netWorthLevel < (Config.MODEL_NET_WORTH_REQ[firstNext] || 0)) return {error: "Net Worth too low."};
 
-        // Passive triggers for other players
-        const trainingRegions = new Set(player.presenceRegions);
-        for (const other of state.players.filter(p => p.id !== playerId)) {
-            const otherRegions = new Set(other.presenceRegions);
-            const shared = [...trainingRegions].filter(r => otherRegions.has(r));
-            if (shared.length === 0) continue;
+        // Rulebook p.8 example shows a player jumping multiple Model
+        // Versions in one round if they place enough workers (e.g., 2
+        // workers to go from V2 to V4 since the cost from V3→V4 is 2).
+        // Keep upgrading while workers cover the next req AND Net Worth /
+        // Compute thresholds for the new version are still met.
+        let remaining = workerCount;
+        let upgradesApplied = 0;
+        while (player.modelVersion < 7) {
+            const nextV = player.modelVersion + 1;
+            const baseReq = Config.MODEL_WORKER_COSTS[nextV] || 1;
+            const finalReq = Math.max(0, baseReq + mods.model_worker_cost_offset - player.tempModelCostWorkerReduction);
+            if (remaining < finalReq) break;
+            if (player.computeLevel < nextV) break;
+            if (player.netWorthLevel < (Config.MODEL_NET_WORTH_REQ[nextV] || 0)) break;
 
-            // Corporate Espionage
-            const espionageCards = state.components.filter(c =>
-                c.zone.startsWith(`active_effect_card_slot_`) && c.zone.endsWith(`_p${other.id}`)
-            );
-            for (const ec of espionageCards) {
-                const def = state.cardDefinitions.find(d => d.id === ec.cardDetailsId);
-                if (def && def.effectSlug === "corporate_espionage" && other.modelVersion >= 3) {
-                    const bonus = other.netWorthLevel >= 2 ? 2 : 1;
-                    other.power = this.clampPower(other.power + bonus);
-                    this.updatePlayerIncome(state, other);
-                }
+            player.modelVersion = nextV;
+            remaining -= finalReq;
+            upgradesApplied += 1;
+            player.reputation = this.clampRep(player.reputation + 1);
+            if (player.tempTrainModelPerRegionPowerBonus) {
+                player.power = this.clampPower(player.power + player.presenceCount);
+                player.tempTrainModelPerRegionPowerBonus = false;
+            } else {
+                player.power = this.clampPower(player.power + Math.floor(player.presenceCount / 2));
             }
-            // Piggyback
-            if (other.tempPiggybackCompetitorModel) {
-                const nextCompute = other.computeLevel + 1;
-                if (nextCompute <= 7) {
-                    const computeCost = Config.COMPUTE_UPGRADE_COSTS[nextCompute] || 999;
-                    const otherMods = this.getPlayerModifiers(state, other.id);
-                    const cost = Math.max(0, computeCost + otherMods.compute_cost_offset);
-                    const nwReq = Config.COMPUTE_NET_WORTH_REQ[nextCompute] || 0;
-                    if (other.corporateFunds >= cost && other.netWorthLevel >= nwReq) {
-                        other.corporateFunds -= cost;
-                        other.computeLevel = nextCompute;
+            this.updatePlayerIncome(state, player);
+            this.checkReputationTiles(state, playerId);
+
+            // Passive triggers fire once per Model Version increase.
+            const trainingRegions = new Set(player.presenceRegions);
+            for (const other of state.players.filter(p => p.id !== playerId)) {
+                const otherRegions = new Set(other.presenceRegions);
+                const shared = [...trainingRegions].filter(r => otherRegions.has(r));
+                if (shared.length === 0) continue;
+
+                // Corporate Espionage
+                const espionageCards = state.components.filter(c =>
+                    c.zone.startsWith(`active_effect_card_slot_`) && c.zone.endsWith(`_p${other.id}`)
+                );
+                for (const ec of espionageCards) {
+                    const def = state.cardDefinitions.find(d => d.id === ec.cardDetailsId);
+                    if (def && def.effectSlug === "corporate_espionage" && other.modelVersion >= 3) {
+                        const bonus = other.netWorthLevel >= 2 ? 2 : 1;
+                        other.power = this.clampPower(other.power + bonus);
+                        this.updatePlayerIncome(state, other);
+                    }
+                }
+                // Piggyback
+                if (other.tempPiggybackCompetitorModel) {
+                    const nextCompute = other.computeLevel + 1;
+                    if (nextCompute <= 7) {
+                        const computeCost = Config.COMPUTE_UPGRADE_COSTS[nextCompute] || 999;
+                        const otherMods = this.getPlayerModifiers(state, other.id);
+                        const cost = Math.max(0, computeCost + otherMods.compute_cost_offset);
+                        const nwReq = Config.COMPUTE_NET_WORTH_REQ[nextCompute] || 0;
+                        if (other.corporateFunds >= cost && other.netWorthLevel >= nwReq) {
+                            other.corporateFunds -= cost;
+                            other.computeLevel = nextCompute;
+                        }
                     }
                 }
             }
         }
-        return {action: "model_trained", new_version: player.modelVersion, new_power: player.power, new_income: player.income};
+        return {
+            action: "model_trained",
+            upgrades_applied: upgradesApplied,
+            start_version: startV,
+            new_version: player.modelVersion,
+            new_power: player.power,
+            new_income: player.income,
+        };
     },
 
     executeMarketing(state, playerId) {
@@ -890,9 +918,11 @@ const Engine = {
                 const def = state.cardDefinitions.find(d => d.id === card.cardDetailsId);
                 const slug = def ? def.effectSlug : null;
                 if (slug === "content_moderation") player.tempCardCostWorkerIncrease += 1;
-                else if (slug === "ransomware") { player.tempWorkerLockCount += 1; player.ransomwareLocked = 2; }
+                // Card description: "They lose 1 Worker next round." Apply
+                // the loss now (start of next round), respecting min 3.
+                else if (slug === "ransomware") player.totalWorkers = Math.max(3, player.totalWorkers - 1);
                 else if (slug === "supply_chain_meltdown") player.tempActionCostIncrease += 3;
-                else if (slug === "poach_engineers") player.totalWorkers = Math.max(1, player.totalWorkers - 1);
+                else if (slug === "poach_engineers") player.totalWorkers = Math.max(3, player.totalWorkers - 1);  // rulebook p.14 min 3
                 card.zone = `${card.subType}_discard`;
                 card.ownerId = null;
             }

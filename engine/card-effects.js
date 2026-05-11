@@ -341,7 +341,8 @@ const CardEffects = {
     burn_out(state, playerId, cardId, payload) {
         const player = _getPlayer(state, playerId);
         if (player.computeLevel > 4) return { error: "Requirement not met: Compute must be at most 4." };
-        if (player.totalWorkers <= 1) return { error: "Cannot burn out last worker." };
+        // Rulebook p.14: "You cannot lose a Tech Worker if you only have 3 Tech Workers."
+        if (player.totalWorkers <= 3) return { error: "Cannot burn out — minimum 3 Tech Workers required." };
         // Check NW for both levels of compute gain
         for (let added = 1; added <= 2; added++) {
             if (player.computeLevel + added <= 7) {
@@ -437,8 +438,11 @@ const CardEffects = {
             toSell = canSell;
         }
         if (toSell === 0) return { success: true, message: "No power sold." };
-        const earned = toSell * 5;
-        player.power -= toSell;
+        // Rulebook p.14: power can't drop below 1.
+        const actualSold = Math.min(toSell, player.power - 1);
+        if (actualSold <= 0) return { success: true, message: "No power sold (already at minimum)." };
+        const earned = actualSold * 5;
+        player.power = Engine.clampPower(player.power - actualSold);
         player.corporateFunds += earned;
         Engine.updatePlayerIncome(state, player);
         return { success: true, message: `Sold ${toSell} Power for $${earned}.` };
@@ -623,7 +627,8 @@ const CardEffects = {
 
     layoffs(state, playerId, cardId, payload) {
         const player = _getPlayer(state, playerId);
-        if (player.totalWorkers <= 1) return { error: "Cannot fire last worker." };
+        // Rulebook p.14: minimum 3 Tech Workers.
+        if (player.totalWorkers <= 3) return { error: "Cannot run Layoffs — minimum 3 Tech Workers required." };
         const gain = player.totalWorkers * 3; // Calculated BEFORE losing worker
         player.totalWorkers -= 1;
         player.corporateFunds += gain;
@@ -747,9 +752,9 @@ const CardEffects = {
             return { error: `${target.userName}'s Compute (${target.computeLevel}) is not higher than yours (${player.computeLevel}).` };
         }
         target.computeLevel -= 1;
-        if (target.modelVersion > target.computeLevel) {
-            target.modelVersion = target.computeLevel;
-        }
+        // Rulebook p.14: "If a Sabotage Card decreases your Compute Level
+        // and your Model Version is now higher than your Compute Level, you
+        // do not need to decrease your Model Version." Keep model intact.
         Engine.updatePlayerIncome(state, target);
         const nwErr = _checkComputeNwReq(player);
         if (!nwErr && player.computeLevel < 7) {
@@ -761,9 +766,10 @@ const CardEffects = {
     fake_celebrity_death(state, playerId, cardId, payload) {
         const target = _getSharedTarget(state, playerId, payload);
         if (!target) return { error: "No valid target with shared presence." };
-        target.power = Math.max(0, target.power - 3);
+        const before = target.power;
+        target.power = Engine.clampPower(target.power - 3);
         Engine.updatePlayerIncome(state, target);
-        return { success: true, message: `Celebrity faked! ${target.userName} lost 3 Power.` };
+        return { success: true, message: `Celebrity faked! ${target.userName} lost ${before - target.power} Power.` };
     },
 
     gpu_price_hike(state, playerId, cardId, payload) {
@@ -869,9 +875,10 @@ const CardEffects = {
         if (repLoss <= 0) return { error: "Not enough reputation to sacrifice." };
         player.reputation = Math.max(-3, player.reputation - repLoss);
         const powerLoss = repLoss * 2;
-        target.power = Math.max(0, target.power - powerLoss);
+        const targetBefore = target.power;
+        target.power = Engine.clampPower(target.power - powerLoss);
         Engine.updatePlayerIncome(state, target);
-        return { success: true, message: `Phishing! Lost ${repLoss} Rep. ${target.userName} lost ${powerLoss} Power.` };
+        return { success: true, message: `Phishing! Lost ${repLoss} Rep. ${target.userName} lost ${targetBefore - target.power} Power.` };
     },
 
     poach_engineers(state, playerId, cardId, payload) {

@@ -357,6 +357,101 @@ def run():
             r == [1, 2], str(r))
 
         # ────────────────────────────────────────────────────────
+        print("\n=== Sabotage drop of Compute does NOT drop Model (rulebook p.14) ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        cooling = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                const p2 = s.players[1];
+                p1.netWorthLevel = 1;
+                p2.computeLevel = 5;
+                p2.modelVersion = 5;
+                const beforeModel = p2.modelVersion;
+                const r = CardEffects.cooling_failure(s, p1.id, 0, {target_player_id: p2.id});
+                return {result: r, beforeModel, afterModel: p2.modelVersion, afterCompute: p2.computeLevel};
+            })()
+        """)
+        log("CF.1 cooling_failure decreased target's Compute by 1",
+            cooling.get("afterCompute") == 4, str(cooling))
+        log("CF.2 cooling_failure did NOT drop Model below Compute (rulebook p.14)",
+            cooling.get("afterModel") == cooling.get("beforeModel"), str(cooling))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Power floor of 1 (rulebook p.14) ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        floors = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                const p2 = s.players[1];
+                // Force p2 (defender) to power 2 then have p1 attack with
+                // Fake Celebrity Death (-3 power) — should clamp to 1, not 0.
+                p2.power = 2;
+                // Ensure shared presence so the attack lands.
+                p2.presenceRegions = [...p1.presenceRegions];
+                const r1 = CardEffects.fake_celebrity_death(s, p1.id, 0, {target_player_id: p2.id});
+                const afterFCD = p2.power;
+                // Reset and test Management Restructuring (sell power for $).
+                p2.power = 2;
+                // Caller is p2 selling 3 power (more than available - 1).
+                const r2 = CardEffects.management_restructuring(s, p2.id, 0, {amount: 3});
+                return {r1, r2, afterFCD, afterRestructure: p2.power};
+            })()
+        """)
+        log("F.1 fake_celebrity_death clamps target power at 1, not 0",
+            floors.get("afterFCD") == 1, str(floors))
+        log("F.2 management_restructuring never sells power below 1",
+            floors.get("afterRestructure") >= 1, str(floors))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Worker minimum 3 (rulebook p.14) ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        wmin = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                // burn_out at 3 workers must be rejected.
+                p1.totalWorkers = 3;
+                const burn = CardEffects.burn_out(s, p1.id, 0, null);
+                // layoffs at 3 workers must be rejected.
+                const lay = CardEffects.layoffs(s, p1.id, 0, null);
+                return {burn, lay, workers: p1.totalWorkers};
+            })()
+        """)
+        log("W.1 burn_out blocked at 3 workers",
+            "3 Tech Workers" in (wmin.get("burn", {}).get("error") or ""), str(wmin))
+        log("W.2 layoffs blocked at 3 workers",
+            "3 Tech Workers" in (wmin.get("lay", {}).get("error") or ""), str(wmin))
+        log("W.3 totalWorkers unchanged (still 3)",
+            wmin.get("workers") == 3, str(wmin))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Train Model multi-upgrade in one round (rulebook p.8 example) ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        multi = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                // Set state so 2 workers should take V0 → V2: cost V0→V1 is
+                // 1 worker, V1→V2 is 1 worker (total 2). Compute must be ≥ 2.
+                p1.modelVersion = 0;
+                p1.computeLevel = 2;
+                p1.netWorthLevel = 0;
+                const r = Engine.executeTrainModel(s, p1.id, 2);
+                return {r, finalVersion: p1.modelVersion};
+            })()
+        """)
+        log("M.1 Train Model with 2 workers from V0 jumps to V2",
+            multi.get("finalVersion") == 2, str(multi))
+        log("M.2 executeTrainModel reports 2 upgrades applied",
+            multi.get("r", {}).get("upgrades_applied") == 2, str(multi))
+
+        # ────────────────────────────────────────────────────────
         print("\n=== RECRUIT sub-action: rulebook p.7-8 ===")
         # ────────────────────────────────────────────────────────
         # Rulebook: "The new Tech Worker is placed on any action of your
