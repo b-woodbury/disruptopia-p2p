@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Disruptopia P2P</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #f0ece3;
+            color: #1e1b18;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- SETUP SCREEN --- */
+        #setup-screen {
+            display: none;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        #setup-screen section {
+            border: 1px solid #d4c9b8;
+            padding: 30px;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        /* --- GAME SCREEN --- */
+        #game-screen {
+            display: none;
+            height: 100vh;
+            padding: 6px;
+            gap: 6px;
+            grid-template-columns: 240px 1fr 220px;
+            grid-template-rows: auto 1fr 270px;
+            grid-template-areas:
+                "header  header   header"
+                "strat   center   effects"
+                "hand    hand     hand";
+        }
+
+        .panel {
+            border: 1px solid #d4c9b8;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        /* Header bar */
+        #header-bar {
+            grid-area: header;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 10px;
+            background: #ffffff;
+            border: 1px solid #d4c9b8;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        #header-bar .stat-cell {
+            text-align: center;
+            padding: 3px 8px;
+            border: 1px solid #e5ddd0;
+            background: #faf7f2;
+            min-width: 55px;
+            border-radius: 8px;
+        }
+        #header-bar .stat-cell .lbl { color: #78716c; font-size: 0.55rem; display: block; }
+        #header-bar .stat-cell .val { font-weight: 600; font-size: 0.85rem; color: #1e1b18; }
+
+        /* Strategy board */
+        #strategy-panel {
+            grid-area: strat;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto !important;  /* override .panel overflow:hidden */
+        }
+        #strategy-panel h3 {
+            font-family: 'Fredoka', cursive;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+            color: #ffffff;
+            background: #4f46e5;
+            padding: 6px 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        #strategy-panel table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+        #strategy-panel th, #strategy-panel td {
+            border: 1px solid #e5ddd0;
+            padding: 5px 6px;
+            text-align: center;
+        }
+        #strategy-panel th { background: #faf7f2; color: #78716c; font-size: 0.6rem; font-weight: 600; }
+        #strategy-panel td:first-child { text-align: left; }
+        #strategy-panel tr:hover { background: #faf7f2; }
+        .btn-worker {
+            background: #4f46e5; color: #fff; border: none;
+            padding: 3px 8px; cursor: pointer; font-size: 0.65rem; font-weight: bold;
+            border-radius: 6px;
+        }
+        .btn-worker:hover { background: #4338ca; }
+
+        /* Hand panel (bottom row) */
+        #hand-panel {
+            grid-area: hand;
+            display: flex;
+            flex-direction: column;
+            background: #f5f0e8;
+            border: 1px solid #d4c9b8;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        /* Center column: dashboard + map */
+        #map-panel {
+            grid-area: center;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            overflow: hidden;
+            padding: 6px;
+        }
+        #map-panel h3 {
+            font-family: 'Fredoka', cursive;
+            font-size: 0.75rem;
+            margin-bottom: 2px;
+            color: #4f46e5;
+        }
+        /* map-and-effects no longer used — map and effects are separate grid areas */
+        /*
+         * Map sizing strategy:
+         * - aspect-ratio keeps proportions correct (975:636)
+         * - max-width: 100% prevents horizontal overflow
+         * - max-height: calc(100vh - 400px) prevents vertical overflow
+         *   (400px = header 42 + hand 270 + dashboard 60 + labels 16 + gaps 12)
+         * - When height-limited, width shrinks proportionally
+         * - margin: 0 auto centers the map if narrower than the column
+         * - background-image fills the box exactly, so overlay % positions align
+         */
+        /* Map container fills remaining space; the inner wrapper maintains aspect ratio */
+        #map-container {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+        #world-map-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 975 / 636;
+            max-height: 100%;
+            background-image: url('WorldMap.png');
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #d4c9b8;
+        }
+        #world-map-wrapper #presence-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        /* Log (hidden -- kept for JS compatibility) */
+        #log-panel {
+            display: none;
+        }
+        #log {
+            display: none;
+        }
+
+        /* Presence & map markers */
+        .presence-bubble {
+            padding: 2px 5px;
+            border-radius: 8px;
+            font-size: 0.55rem;
+            font-weight: bold;
+            color: black;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            border: 1px solid rgba(0,0,0,0.15);
+            white-space: nowrap;
+        }
+        .region-marker {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            transform: translate(-50%, -50%);
+        }
+        .subsidy-token {
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: #d97706;
+            border: 2px solid #b45309;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 4px rgba(217,119,6,0.4);
+            font-size: 0.5rem;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        /* Setup player pieces */
+        .player-piece {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            border: 3px solid #fff;
+            cursor: grab;
+            position: absolute;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            font-size: 0.6rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            transition: box-shadow 0.15s;
+        }
+        .player-piece:hover { box-shadow: 0 0 12px rgba(79,70,229,0.5); }
+        .player-piece.dragging { cursor: grabbing; opacity: 0.8; z-index: 30; }
+
+        /* Setup region drop zones */
+        .setup-drop-zone {
+            position: absolute;
+            width: 16%; height: 42%;
+            transform: translate(-50%, -50%);
+            border-radius: 8px;
+            border: 1px dashed transparent;
+            transition: border-color 0.15s, background 0.15s;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 4px;
+        }
+        .setup-drop-zone.highlight {
+            border-color: #4f46e5;
+            background: rgba(79,70,229,0.1);
+        }
+        .setup-drop-zone .zone-label {
+            font-size: 0.55rem;
+            color: #78716c;
+            pointer-events: none;
+        }
+
+        /* Modal */
+        #choice-modal {
+            display: none;
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(30,27,24,0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        #choice-modal > div {
+            background: #ffffff;
+            border: 1px solid #d4c9b8;
+            padding: 20px;
+            min-width: 350px;
+            max-width: 750px;
+            max-height: 85vh;
+            overflow-y: auto;
+            color: #1e1b18;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        #modal-title {
+            margin-bottom: 8px;
+            font-size: 1rem;
+            font-family: 'Fredoka', cursive;
+            color: #4f46e5;
+        }
+        #modal-desc { font-size: 0.8rem; color: #78716c; margin-bottom: 12px; }
+
+        /* ── Resolution Animation ─────────────────────── */
+        .resolution-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 10000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .action-card {
+            background: #ffffff;
+            border: 1px solid #d4c9b8;
+            border-radius: 14px;
+            padding: 20px 24px;
+            max-width: 420px;
+            width: 90vw;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        .action-card-enter {
+            animation: actionCardEnter 0.3s ease forwards;
+        }
+
+        .action-card-exit {
+            animation: actionCardExit 0.2s ease forwards;
+        }
+
+        @keyframes actionCardEnter {
+            from { opacity: 0; transform: translateY(30px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes actionCardExit {
+            from { opacity: 1; transform: translateY(0); }
+            to   { opacity: 0; transform: translateY(-20px); }
+        }
+
+        .stat-pulse-up {
+            animation: statPulseUp 0.8s ease;
+        }
+
+        .stat-pulse-down {
+            animation: statPulseDown 0.8s ease;
+        }
+
+        @keyframes statPulseUp {
+            0%   { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+            30%  { box-shadow: 0 0 8px 3px rgba(22, 163, 74, 0.5); color: #16a34a; transform: scale(1.15); }
+            100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); transform: scale(1); }
+        }
+
+        @keyframes statPulseDown {
+            0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+            30%  { box-shadow: 0 0 8px 3px rgba(220, 38, 38, 0.5); color: #dc2626; transform: scale(1.15); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); transform: scale(1); }
+        }
+
+        .stat-change-badge {
+            animation: badgePop 0.4s ease;
+        }
+
+        @keyframes badgePop {
+            0%   { opacity: 0; transform: scale(0.7); }
+            60%  { transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Reset button */
+        #btn-reset-game {
+            position: fixed;
+            bottom: 8px;
+            right: 8px;
+            padding: 4px 10px;
+            font-size: 0.6rem;
+            background: #ffffff;
+            color: #dc2626;
+            border: 1px solid #dc2626;
+            border-radius: 6px;
+            cursor: pointer;
+            z-index: 50;
+            opacity: 0.6;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        #btn-reset-game:hover { opacity: 1; }
+
+        /* Rules panel */
+        #rules-panel {
+            display: none;
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(30,27,24,0.7);
+            z-index: 90;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        #rules-panel > div {
+            background: #ffffff;
+            border: 1px solid #d4c9b8;
+            padding: 20px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #1e1b18;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        #rules-panel h3 {
+            color: #4f46e5;
+            margin-bottom: 10px;
+            font-family: 'Fredoka', cursive;
+        }
+        #rules-panel h4 {
+            color: #4f46e5;
+            margin: 10px 0 4px;
+            font-family: 'Fredoka', cursive;
+        }
+
+        /* Cards in Play panel */
+        #active-effects-panel {
+            background: #faf7f2;
+            border: 1px solid #e5ddd0;
+            border-radius: 8px;
+            padding: 6px;
+            min-height: 120px;
+        }
+
+        /* --- MOBILE / TABLET --- */
+        @media (max-width: 900px) {
+            body { overflow: auto; }
+            #game-screen {
+                height: auto;
+                min-height: 100vh;
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto auto;
+                grid-template-areas:
+                    "header"
+                    "strat"
+                    "center"
+                    "effects"
+                    "hand";
+            }
+            #world-map-wrapper {
+                max-width: 100%;
+                max-height: none;
+            }
+            #header-bar {
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            #header-bar .stat-cell {
+                min-width: 45px;
+                padding: 2px 4px;
+            }
+            #header-bar .stat-cell .lbl { font-size: 0.5rem; }
+            #header-bar .stat-cell .val { font-size: 0.75rem; }
+            #strategy-panel table { font-size: 0.65rem; }
+            #strategy-panel th, #strategy-panel td { padding: 4px; }
+            #map-panel { min-height: 200px; flex-wrap: wrap; }
+            #log-panel { min-height: 100px; max-height: 150px; }
+            #right-panel { min-height: 0; }
+            #choice-modal > div {
+                min-width: 90vw;
+                max-width: 95vw;
+                padding: 15px;
+            }
+            #setup-screen { margin: 10px auto; padding: 10px; }
+            .player-piece { width: 24px; height: 24px; font-size: 0.5rem; }
+        }
+
+        @media (max-width: 500px) {
+            #header-bar .stat-cell .lbl { display: none; }
+            #header-bar .stat-cell { min-width: 35px; }
+            .btn-worker { padding: 2px 5px; font-size: 0.6rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen">
+    <section>
+        <h2 style="text-align: center; margin-bottom: 20px; font-size: 1.4rem; font-family: 'Fredoka', cursive; color: #4f46e5;">Disruptopia - New Game</h2>
+        <div style="margin-bottom: 15px;">
+            <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Number of Players</label><br>
+            <select id="setup-player-count" onchange="updateSetupForm()" style="background: #ffffff; color: #1e1b18; border: 1px solid #d4c9b8; padding: 8px; width: 100%; font-size: 1rem; border-radius: 8px; font-family: 'Inter', system-ui, sans-serif;">
+                <option value="2">2 Players</option>
+                <option value="3">3 Players</option>
+                <option value="4">4 Players</option>
+                <option value="5">5 Players</option>
+            </select>
+        </div>
+        <div id="setup-players-container"></div>
+        <div id="setup-map-container" style="margin: 15px 0;"></div>
+        <button onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
+            Launch Game
+        </button>
+    </section>
+</div>
+
+<!-- GAME SCREEN -->
+<div id="game-screen">
+
+    <!-- Header bar: identity + stats + round -->
+    <div id="header-bar">
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <select id="player-select" onchange="switchPlayer(this.value)" style="background: #faf7f2; color: #1e1b18; border: 1px solid #d4c9b8; font-size: 0.7rem; padding: 2px 4px; border-radius: 6px; font-family: 'Inter', system-ui, sans-serif;">
+            </select>
+            <span id="user-name" style="font-weight: 600; font-size: 0.85rem; color: #1e1b18;">&#8212;</span>
+        </div>
+        <div style="flex: 1; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+            <div class="stat-cell"><span class="lbl">Power</span><span class="val" id="stat-power" style="color:#d97706;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Income</span><span class="val" id="stat-income">0</span></div>
+            <div class="stat-cell"><span class="lbl">Subsidies</span><span class="val" id="stat-subsidies">0</span></div>
+            <div class="stat-cell"><span class="lbl">Corp Funds</span><span class="val" id="stat-corp-funds" style="color:#16a34a;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Pers Funds</span><span class="val" id="stat-pers-funds" style="color:#16a34a;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Workers</span><span class="val" id="stat-total-workers">0</span></div>
+            <div class="stat-cell"><span class="lbl">Reputation</span><span class="val" id="stat-reputation" style="color:#4f46e5;">0</span></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="round-display" style="font-size: 0.9rem; color: #4f46e5; font-weight: bold; font-family: 'Fredoka', cursive;"></span>
+            <button onclick="toggleRules()" style="background: #4f46e5; color: #fff; border: none; padding: 4px 10px; font-size: 0.7rem; cursor: pointer; border-radius: 6px; font-weight: 600;" title="Rules Reference">?</button>
+        </div>
+    </div>
+
+    <!-- Left: Strategy Board -->
+    <div id="strategy-panel" class="panel">
+        <h3>Quarterly Strategy Board</h3>
+        <table>
+            <thead><tr><th>Action</th><th>Cost</th><th>Assigned</th><th></th></tr></thead>
+            <tbody id="strategy-rows"></tbody>
+        </table>
+        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5ddd0; display: flex; gap: 6px; flex-wrap: wrap;">
+            <button id="btn-execute-strategy" onclick="startStrategyExecution()"
+                style="padding: 8px 14px; font-size: 0.75rem; font-weight: bold; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; border: none; cursor: pointer; flex: 1; border-radius: 8px; font-family: 'Fredoka', cursive; letter-spacing: 0.3px;">
+                Execute Strategy
+            </button>
+            <button id="btn-undo-placement" onclick="undoPlacement()"
+                style="padding: 8px 14px; font-size: 0.7rem; font-weight: 600; background: #f5f0e8; color: #78716c; border: 1px solid #d4c9b8; cursor: pointer; border-radius: 8px;">
+                Undo
+            </button>
+        </div>
+    </div>
+
+    <!-- Center: Dashboard + Map -->
+    <div id="map-panel" class="panel">
+        <div style="flex-shrink: 0;">
+            <h3 style="font-size: 0.65rem; margin-bottom: 1px; color: #78716c;">Player Dashboard</h3>
+            <div id="player-dashboard" style="overflow-x: auto; font-size: 0.6rem;"></div>
+        </div>
+        <div id="map-container">
+            <div id="world-map-wrapper">
+                <div id="presence-overlay"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right column: Cards in Play -->
+    <div id="active-effects-panel" class="panel" style="grid-area: effects; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;">
+        <h3 style="font-size: 0.75rem; color: #d97706; margin: 0; font-family: 'Fredoka', cursive;">Cards in Play</h3>
+        <div id="active-effects-container"></div>
+    </div>
+
+    <!-- Hidden log (kept for JS compatibility) -->
+    <div id="log-panel" style="display:none;"><div id="log"></div></div>
+
+    <!-- Bottom: Hand (full width, large cards) -->
+    <div id="hand-panel" class="panel" style="background: #f5f0e8;">
+        <h3 style="font-size: 0.8rem; margin-bottom: 4px; flex-shrink: 0; font-family: 'Fredoka', cursive; color: #4f46e5;">Hand</h3>
+        <div id="player-hand" style="display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; flex: 1; min-height: 0; align-items: flex-start; padding: 4px 8px; justify-content: center;"></div>
+    </div>
+
+</div>
+
+<!-- Fixed Reset Button -->
+<button id="btn-reset-game" onclick="resetGame()" style="display: none;">RESET GAME</button>
+
+<!-- Rules Panel -->
+<div id="rules-panel" onclick="toggleRules()">
+    <div onclick="event.stopPropagation()">
+        <h3>Disruptopia - Quick Reference</h3>
+        <h4>Goal</h4>
+        <p>Earn the most Victory Points (VP) over 8 rounds. VP comes from: Power (1 VP per 5), Model Version (1 VP each), Presence Regions (1 VP each), Personal Funds ranking, and Net Worth race bonuses.</p>
+        <h4>Each Round</h4>
+        <p>1. Each player assigns their Tech Workers to actions on the Strategy Board.<br>
+        2. All players click "Execute Strategy" to resolve actions in turn order.<br>
+        3. New cards are drawn and the next round begins.</p>
+        <h4>Actions</h4>
+        <p><b>Buy Chips</b> - Upgrade Compute Level (needed before Model upgrades). Costs $.<br>
+        <b>Recruit</b> - Hire a new Tech Worker. Costs $. Net Worth gates higher workers.<br>
+        <b>Train Model</b> - Upgrade Model Version. Costs workers. Requires Compute >= Model. Gains Power + Rep.<br>
+        <b>Increase Net Worth</b> - Startup->Millionaire ($3, -2 Rep) or Millionaire->Billionaire ($5, -4 Rep).<br>
+        <b>Marketing</b> - Startup: +3 Rep. Millionaire: +1 Rep, +1 Power. Billionaire: +2 Power.<br>
+        <b>Scale Presence</b> - Expand to adjacent region. Earn Subsidy Tokens.<br>
+        <b>Play Card</b> - Play a card from your hand (costs workers based on card).<br>
+        <b>Raise Funds</b> - Move Corp Funds to Personal Funds, then draw Income to Corp Funds.</p>
+        <h4>Income</h4>
+        <p>Income = Power + (Subsidy Tokens x Net Worth Level). Drawn during Raise Funds. Cap per worker: 8 (1w), 19 (2w), 39 (3w).</p>
+        <h4>Cards</h4>
+        <p>3 decks: Research (tech buffs), Influence (power/money), Sabotage (attack opponents). Draw 1 from each per round. Hand limit: 5.</p>
+        <button onclick="toggleRules()" style="margin-top: 15px; padding: 8px 20px; background: #4f46e5; color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 8px; font-family: 'Fredoka', cursive;">Close</button>
+    </div>
+</div>
+
+<!-- Choice Modal -->
+<div id="choice-modal">
+    <div>
+        <h3 id="modal-title">Decision Required</h3>
+        <p id="modal-desc"></p>
+        <div id="modal-options"></div>
+    </div>
+</div>
+
+<!-- Engine (game logic runs locally) -->
+<script src="engine/config.js"></script>
+<script src="engine/cards.js"></script>
+<script src="engine/card-effects.js"></script>
+<script src="engine/game-engine.js"></script>
+<script src="engine/availability.js"></script>
+<script src="engine/seed.js"></script>
+<!-- Network (persistence + optional relay) -->
+<script src="network/persistence.js"></script>
+<script src="network/relay-client.js"></script>
+<!-- UI -->
+<script src="ui/rendering.js"></script>
+<script src="ui/modals.js"></script>
+<script src="ui/animations.js"></script>
+<script src="ui/game-logic.js"></script>
+<script src="ui/app.js"></script>
+</body>
+</html>
