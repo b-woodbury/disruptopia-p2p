@@ -595,10 +595,10 @@ function resolveInteraction(index, payload) {
     } else if (itype === "choose_squeeze_region") {
         const target = Engine.getPlayer(Game.localState, interaction.target_player_id);
         if (target) {
-            // Use the slot-aware helper so the freed token sits on the
-            // most expensive empty board slot for re-purchase (rulebook p.14).
+            // Slot-aware return per rulebook p.14. Subsidy tokens are
+            // held on the Player Mat (not per-region) so removing a
+            // presence does NOT strip a subsidy.
             Engine.returnPresenceToBoard(target, parseInt(payload.region_id));
-            if (target.subsidyTokens > 0) target.subsidyTokens -= 1;
             Engine.updatePlayerIncome(Game.localState, target);
         }
     } else if (itype === "choose_regions") {

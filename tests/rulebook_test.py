@@ -308,6 +308,10 @@ def run():
             (() => {
                 const s = Game.localState;
                 const p1 = s.players[0];
+                // Tile 3 requires Billionaire to hold (rulebook p.13); without
+                // this, any rep-changing card-effect rebalance would strip the
+                // tile from a Startup-NW p1.
+                p1.netWorthLevel = 2;
                 for (const t of s.reputationTiles) t.ownerId = null;
                 s.reputationTiles.push({
                     id: 88003, level: 3, name: "Infinite Loop",
@@ -648,6 +652,352 @@ def run():
             str(pendings))
         log("P.2 The interaction's responder is the invoking player",
             pendings.get("responder") == 1, str(pendings))
+
+        # ════════════════════════════════════════════════════════
+        # CARD-EFFECT AUDIT (deep card-by-card pass)
+        # ════════════════════════════════════════════════════════
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Consulting Fees — triggers $1/power-gain on shared opps ===")
+        # ────────────────────────────────────────────────────────
+        # Card text: "Shared-presence opponents pay $1 per Power gain this
+        # round." Owner of consulting_fees collects $1 from the gainer for
+        # each +1 power, capped by gainer's funds.
+        fresh_game(page, 2)
+        cf = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                // Force shared presence
+                p2.presenceRegions = [...p2.presenceRegions, ...p1.presenceRegions];
+                p2.presenceCount = p2.presenceRegions.length;
+                // P2 holds an active consulting_fees card
+                const def = s.cardDefinitions.find(d => d.effectSlug === "consulting_fees");
+                const card = s.components.find(c => c.cardDetailsId === def.id);
+                card.zone = "active_effect_card_slot_1_p" + p2.id;
+                card.ownerId = p2.id;
+                p1.corporateFunds = 10;
+                p2.corporateFunds = 0;
+                Engine.gainPower(s, p1, 3);
+                return {p1Funds: p1.corporateFunds, p2Funds: p2.corporateFunds};
+            })()
+        """)
+        log("CF.1 Gainer loses $3 (1 per power)", cf["p1Funds"] == 7, str(cf))
+        log("CF.2 Card owner collects the $3", cf["p2Funds"] == 3, str(cf))
+
+        # Charge is capped by gainer's funds
+        cf2 = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                p2.presenceRegions = [...p2.presenceRegions, ...p1.presenceRegions];
+                p2.presenceCount = p2.presenceRegions.length;
+                const def = s.cardDefinitions.find(d => d.effectSlug === "consulting_fees");
+                const card = s.components.find(c => c.cardDetailsId === def.id);
+                card.zone = "active_effect_card_slot_1_p" + p2.id;
+                card.ownerId = p2.id;
+                p1.corporateFunds = 1;
+                p2.corporateFunds = 5;
+                Engine.gainPower(s, p1, 4);
+                return {p1Funds: p1.corporateFunds, p2Funds: p2.corporateFunds};
+            })()
+        """)
+        log("CF.3 Charge capped by gainer's available funds", cf2["p1Funds"] == 0 and cf2["p2Funds"] == 6, str(cf2))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== GPU Price Hike — triggers $1/compute-gain on shared opps ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        gph = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                p2.presenceRegions = [...p2.presenceRegions, ...p1.presenceRegions];
+                p2.presenceCount = p2.presenceRegions.length;
+                const def = s.cardDefinitions.find(d => d.effectSlug === "gpu_price_hike");
+                const card = s.components.find(c => c.cardDetailsId === def.id);
+                card.zone = "active_effect_card_slot_1_p" + p2.id;
+                card.ownerId = p2.id;
+                p1.corporateFunds = 20; p2.corporateFunds = 0;
+                Engine.gainCompute(s, p1, 2);
+                return {p1Funds: p1.corporateFunds, p2Funds: p2.corporateFunds, p1Compute: p1.computeLevel};
+            })()
+        """)
+        log("GPH.1 P1 paid $2 for 2 compute increases", gph["p1Funds"] == 18 and gph["p1Compute"] == 3, str(gph))
+        log("GPH.2 Card owner received $2", gph["p2Funds"] == 2, str(gph))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Big Compute Energy fires on card-driven compute ===")
+        # ────────────────────────────────────────────────────────
+        # Card text: "Every time you increase Compute this round, +2 Power."
+        # Should fire on Buy Chips AND on cards (nerdy_optimization, burn_out).
+        fresh_game(page, 2)
+        bce = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.tempComputeGainPowerBonus = 2;
+                const before = p1.power;
+                // Card-driven compute increase
+                CardEffects.nerdy_optimization(s, p1.id, 0, null);
+                const after = p1.power;
+                return {before, after, compute: p1.computeLevel};
+            })()
+        """)
+        log("BCE.1 nerdy_optimization fires Big Compute Energy (+2 power)",
+            bce["after"] - bce["before"] == 2 and bce["compute"] == 2, str(bce))
+
+        # Burn Out is +2 compute → should give +4 power if BCE active
+        bce2 = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.netWorthLevel = 1;
+                p1.tempComputeGainPowerBonus = 2;
+                p1.totalWorkers = 5;
+                p1.computeLevel = 1;
+                const before = p1.power;
+                CardEffects.burn_out(s, p1.id, 0, null);
+                return {before, after: p1.power, compute: p1.computeLevel};
+            })()
+        """)
+        log("BCE.2 burn_out (+2 compute) fires BCE twice (+4 power)",
+            bce2["after"] - bce2["before"] == 4 and bce2["compute"] == 3, str(bce2))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Reputation Tile auto-rebalance on card rep change ===")
+        # ────────────────────────────────────────────────────────
+        # Rulebook p.13: tiles transfer when rep ordering changes. Card
+        # effects mutating rep MUST rebalance — otherwise a player keeps a
+        # tile they no longer deserve.
+        fresh_game(page, 2)
+        rb = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                // Strip existing tiles, inject a fresh level-1
+                s.reputationTiles = [];
+                s.reputationTiles.push({id: 999, level: 1, name: "Test L1", effectCode: "income_plus_1", ownerId: p1.id});
+                p1.reputation = 5; p2.reputation = 3;
+                // Now P2 plays Build a Fancy Schmancy HQ to spike rep
+                p2.presenceCount = 3;
+                CardEffects.build_hq(s, p2.id, 0, null);
+                // P2's rep should now be 5; tied with P1 — P1 keeps it (sticky-to-holder)
+                const ownerAfterTie = s.reputationTiles[0].ownerId;
+                // Now P2 plays university_collab (+2 rep) → P2 at 7, exceeds P1
+                CardEffects.university_collab(s, p2.id, 0, null);
+                const ownerAfterLead = s.reputationTiles[0].ownerId;
+                return {p1Rep: p1.reputation, p2Rep: p2.reputation, ownerAfterTie, ownerAfterLead};
+            })()
+        """)
+        log("RB.1 Tie keeps existing holder (sticky-to-current)", rb["ownerAfterTie"] == 1, str(rb))
+        log("RB.2 Rep change via card transfers tile to new leader", rb["ownerAfterLead"] == 2, str(rb))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Sweatshop / Powerpoint — rep limit cap (not threshold) ===")
+        # ────────────────────────────────────────────────────────
+        # Card text: "Reputation Limits apply." Should allow play if rep
+        # change fits the [-3, 10] cap.
+        fresh_game(page, 2)
+        rl = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.reputation = -1;
+                const before = p1.tempModelCostWorkerReduction;
+                const r = CardEffects.sweatshop(s, p1.id, 0, null);
+                return {ok: !r.error, err: r.error, mcr: p1.tempModelCostWorkerReduction, rep: p1.reputation, before};
+            })()
+        """)
+        log("RL.1 Sweatshop plays at rep -1 (would clamp to -3)",
+            rl["ok"] and rl["mcr"] == rl["before"] + 2 and rl["rep"] == -3, str(rl))
+
+        rl2 = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.reputation = -2;
+                const r = CardEffects.powerpoint(s, p1.id, 0, null);
+                return {ok: !r.error, err: r.error, rep: p1.reputation, compute: p1.computeLevel};
+            })()
+        """)
+        log("RL.2 Powerpoint plays at rep -2 (would clamp to -3)",
+            rl2["ok"] and rl2["rep"] == -3, str(rl2))
+
+        rl3 = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.reputation = -3;
+                const r = CardEffects.powerpoint(s, p1.id, 0, null);
+                return {ok: !r.error, err: r.error};
+            })()
+        """)
+        log("RL.3 Powerpoint rejected at rep -3 (already at floor)",
+            not rl3["ok"], str(rl3))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Spaghetti Code / Recruiting Pipeline are immediate ===")
+        # ────────────────────────────────────────────────────────
+        # Rulebook p.14 clarification: Spaghetti Code is a one-shot action
+        # that recruits a worker without using a Recruit slot. It should
+        # NOT occupy an active effect slot.
+        fresh_game(page, 2)
+        imm = page.evaluate("""
+            (() => {
+                const defs = state => state.cardDefinitions;
+                const s = Game.localState;
+                const sp = defs(s).find(d => d.effectSlug === "spaghetti_code");
+                const rp = defs(s).find(d => d.effectSlug === "recruiting_pipeline");
+                return {spIsEffect: sp.isEffect, rpIsEffect: rp.isEffect};
+            })()
+        """)
+        log("Imm.1 spaghetti_code marked isEffect:false", imm["spIsEffect"] == False, str(imm))
+        log("Imm.2 recruiting_pipeline marked isEffect:false", imm["rpIsEffect"] == False, str(imm))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Hack Competitor Model — fires espionage / model_hype ===")
+        # ────────────────────────────────────────────────────────
+        # Card text: "Pay $4 to take the Train Model action." Should fire
+        # the same triggers as a regular Train Model.
+        fresh_game(page, 2)
+        hcm = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                p2.modelVersion = 3;
+                p2.netWorthLevel = 1;
+                p1.netWorthLevel = 1;
+                p1.computeLevel = 4;
+                p1.modelVersion = 0;
+                p1.corporateFunds = 20;
+                p1.presenceCount = 4;
+                p2.presenceRegions = [...p2.presenceRegions, ...p1.presenceRegions];
+                p2.presenceCount = p2.presenceRegions.length;
+                // Give P2 corporate_espionage active
+                const espDef = s.cardDefinitions.find(d => d.effectSlug === "corporate_espionage");
+                const espCard = s.components.find(c => c.cardDetailsId === espDef.id);
+                espCard.zone = "active_effect_card_slot_1_p" + p2.id;
+                espCard.ownerId = p2.id;
+                const p2PowerBefore = p2.power;
+                const p1PowerBefore = p1.power;
+                const r = CardEffects.hack_competitor_model(s, p1.id, 0, null);
+                return {
+                    err: r.error,
+                    p1Model: p1.modelVersion, p1Funds: p1.corporateFunds,
+                    p1PowerGain: p1.power - p1PowerBefore,
+                    p2PowerGain: p2.power - p2PowerBefore,
+                };
+            })()
+        """)
+        log("HCM.1 Hack upgrades model and charges $4",
+            hcm.get("p1Model") == 1 and hcm.get("p1Funds") == 16, str(hcm))
+        log("HCM.2 Hack fires espionage on shared-presence owner of espionage",
+            hcm.get("p2PowerGain", 0) >= 1, str(hcm))
+
+        # Model Hype trigger via Hack
+        hcm2 = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                p2.modelVersion = 1;
+                p1.netWorthLevel = 1;
+                p1.computeLevel = 4;
+                p1.modelVersion = 0;
+                p1.corporateFunds = 20;
+                p1.presenceCount = 5;
+                p1.tempTrainModelPerRegionPowerBonus = true;
+                const p1Power = p1.power;
+                CardEffects.hack_competitor_model(s, p1.id, 0, null);
+                return {gain: p1.power - p1Power, hypeAfter: p1.tempTrainModelPerRegionPowerBonus};
+            })()
+        """)
+        log("HCM.3 Hack consumes Model Hype (+1 power per region instead of /2)",
+            hcm2.get("gain", 0) >= 5 and hcm2.get("hypeAfter") == False, str(hcm2))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Penalty Tile 0 sticky at rep -2/-1 (rulebook p.13) ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        pt = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.reputation = -3;
+                Engine.checkReputationTiles(s, p1.id);
+                const tilesAtMinus3 = s.reputationTiles.filter(t => t.level === 0 && t.ownerId === p1.id).length;
+                p1.reputation = -2;
+                Engine.checkReputationTiles(s, p1.id);
+                const tilesAtMinus2 = s.reputationTiles.filter(t => t.level === 0 && t.ownerId === p1.id).length;
+                p1.reputation = -1;
+                Engine.checkReputationTiles(s, p1.id);
+                const tilesAtMinus1 = s.reputationTiles.filter(t => t.level === 0 && t.ownerId === p1.id).length;
+                p1.reputation = 0;
+                Engine.checkReputationTiles(s, p1.id);
+                const tilesAtZero = s.reputationTiles.filter(t => t.level === 0 && t.ownerId === p1.id).length;
+                return {tilesAtMinus3, tilesAtMinus2, tilesAtMinus1, tilesAtZero};
+            })()
+        """)
+        log("PT.1 Tile 0 assigned at rep -3", pt["tilesAtMinus3"] == 1, str(pt))
+        log("PT.2 Tile 0 sticky at rep -2", pt["tilesAtMinus2"] == 1, str(pt))
+        log("PT.3 Tile 0 sticky at rep -1", pt["tilesAtMinus1"] == 1, str(pt))
+        log("PT.4 Tile 0 returns at rep 0", pt["tilesAtZero"] == 0, str(pt))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Squeeze Out — does NOT strip subsidy ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        sq = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0], p2 = s.players[1];
+                // Force shared region & target advantage
+                p1.presenceRegions = [1];
+                p1.presenceCount = 1;
+                p2.presenceRegions = [1, 2, 3];
+                p2.presenceCount = 3;
+                // Sync the board so tokens for regions 1/2/3 are OFF the board
+                p2.presenceBoardSlots = [5, 6, 7, 8, 9, 10];
+                p2.subsidyTokens = 2;
+                const res = CardEffects.squeeze_competition(s, p1.id, 0, {target_player_id: p2.id, region_id: 1});
+                return {err: res && res.error, p2Subsidy: p2.subsidyTokens, p2Presence: p2.presenceCount, p2HasRegion1: p2.presenceRegions.includes(1)};
+            })()
+        """)
+        log("Sq.1 Squeeze removed presence", sq["p2Presence"] == 2 and not sq["p2HasRegion1"], str(sq))
+        log("Sq.2 Squeeze preserved subsidy tokens", sq["p2Subsidy"] == 2, str(sq))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Intern Volunteer Program slot protection ===")
+        # ────────────────────────────────────────────────────────
+        # Card text: "Once played, this card cannot be discarded."
+        # Slot overwrite must NOT silently discard intern.
+        fresh_game(page, 2)
+        intern = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.presenceCount = 2;
+                // Place intern in slot 1
+                const internDef = s.cardDefinitions.find(d => d.effectSlug === "intern_program");
+                const internCard = s.components.find(c => c.cardDetailsId === internDef.id);
+                internCard.zone = "active_effect_card_slot_1_p" + p1.id;
+                internCard.ownerId = p1.id;
+                // Try to play HQ (another isEffect card) into slot 1
+                const hqDef = s.cardDefinitions.find(d => d.effectSlug === "build_hq");
+                const hqCard = s.components.find(c => c.cardDetailsId === hqDef.id && (c.ownerId === p1.id || c.zone === "influence_deck"));
+                hqCard.zone = "hand_p" + p1.id;
+                hqCard.ownerId = p1.id;
+                p1.workersSpentOnCards = 0;
+                // Need a play_card worker placement for the workersSpentOnCards check
+                Engine.placeWorker(s, p1.id, 1, "play_card", null, hqCard.id, null);
+                const r = Engine.playCard(s, p1.id, hqCard.id, 1, null);
+                // Intern should still be in its slot
+                const internStillThere = internCard.zone === "active_effect_card_slot_1_p" + p1.id;
+                return {err: r.error, internStillThere};
+            })()
+        """)
+        log("Int.1 playCard rejects overwriting intern slot",
+            intern["err"] is not None and intern["internStillThere"], str(intern))
 
         browser.close()
 

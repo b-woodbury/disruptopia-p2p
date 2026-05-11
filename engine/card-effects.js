@@ -16,12 +16,20 @@ function _getPlayer(state, playerId) {
 }
 
 function _addPower(state, player, amount) {
-    player.power = Engine.clampPower(player.power + amount);
-    Engine.updatePlayerIncome(state, player);
+    // Route through Engine.gainPower so Consulting Fees fires (card text
+    // says shared-presence opponents pay $1 per power gain).
+    if (amount > 0) {
+        Engine.gainPower(state, player, amount);
+    } else {
+        player.power = Engine.clampPower(player.power + amount);
+        Engine.updatePlayerIncome(state, player);
+    }
 }
 
 function _addReputation(state, player, amount) {
     player.reputation = Engine.clampRep(player.reputation + amount);
+    // Rulebook p.13: any rep change can transfer Bonus Tiles. Rebalance.
+    Engine.checkReputationTiles(state, player.id);
 }
 
 function _getSharedPresenceOpponents(state, playerId) {
@@ -227,7 +235,9 @@ const CardEffects = {
 
     sweatshop(state, playerId, cardId, payload) {
         const player = _getPlayer(state, playerId);
-        if (player.reputation < 2) return { error: "Requirement not met: Need at least 2 Reputation." };
+        // "Reputation Limits apply" means the -3 floor caps the change.
+        // Need rep ≥ -1 to absorb the full -2 hit.
+        if (player.reputation < -1) return { error: "Requirement not met: Reputation too low (would hit -3 floor)." };
         player.tempModelCostWorkerReduction += 2;
         _addReputation(state, player, -2);
         return { success: true, message: "Sweatshop: Model Cost -2 Workers, -2 Rep." };
@@ -241,7 +251,6 @@ const CardEffects = {
         if (!competitors.some(c => c.modelVersion > player.modelVersion)) {
             return { error: "Requirement not met: No competitor has a higher Model Version." };
         }
-
         if (player.corporateFunds < 4) return { error: "Insufficient funds: Need $4." };
 
         const nextVersion = player.modelVersion + 1;
@@ -249,19 +258,17 @@ const CardEffects = {
         if (player.computeLevel < nextVersion) {
             return { error: `Insufficient Compute Level. Need ${nextVersion}.` };
         }
-
         const nwReq = (Config.MODEL_NET_WORTH_REQ || {})[nextVersion] || 0;
         if (player.netWorthLevel < nwReq) {
             const nwNames = { 0: "Startup", 1: "Millionaire", 2: "Billionaire" };
             return { error: `Must be ${nwNames[nwReq]} for Model Version ${nextVersion}.` };
         }
 
+        // Card text: "Pay $4 to take the Train Model action." Run exactly
+        // one upgrade through the shared helper so Espionage, Piggyback, and
+        // Model Hype fire identically to a regular Train Model action.
         player.corporateFunds -= 4;
-        player.modelVersion = nextVersion;
-        player.reputation = Engine.clampRep(player.reputation + 1);
-        player.power = Engine.clampPower(player.power + Math.floor(player.presenceCount / 2));
-        Engine.updatePlayerIncome(state, player);
-        Engine.checkReputationTiles(state, playerId);
+        Engine._applyOneModelUpgrade(state, player);
         return { success: true, message: `Hacked Model: Upgraded to V${player.modelVersion}.` };
     },
 
@@ -324,7 +331,8 @@ const CardEffects = {
         if (player.computeLevel >= 7) return { success: true, message: "Already at max Compute Level." };
         const nwErr = _checkComputeNwReq(player);
         if (nwErr) return nwErr;
-        player.computeLevel += 1;
+        // Big Compute Energy / GPU Price Hike triggers fire via gainCompute.
+        Engine.gainCompute(state, player, 1);
         return { success: true, message: "Optimized: +1 Compute." };
     },
 
@@ -336,11 +344,12 @@ const CardEffects = {
 
     powerpoint(state, playerId, cardId, payload) {
         const player = _getPlayer(state, playerId);
-        if (player.reputation < 1) return { error: "Requirement not met: Need at least 1 Reputation." };
+        // "Reputation Limits apply" — need rep ≥ -2 to absorb the -1 hit.
+        if (player.reputation < -2) return { error: "Requirement not met: Reputation too low (would hit -3 floor)." };
         if (player.computeLevel >= 7) return { success: true, message: "Already at max Compute Level." };
         const nwErr = _checkComputeNwReq(player);
         if (nwErr) return nwErr;
-        player.computeLevel += 1;
+        Engine.gainCompute(state, player, 1);
         _addReputation(state, player, -1);
         return { success: true, message: "Powerpoint: +1 Compute, -1 Rep." };
     },
@@ -357,7 +366,9 @@ const CardEffects = {
                 if (nwErr) return nwErr;
             }
         }
-        player.computeLevel = Math.min(7, player.computeLevel + 2);
+        // gainCompute returns the actual increase (capped at level 7) and
+        // fires Big Compute Energy / GPU Price Hike per compute increment.
+        Engine.gainCompute(state, player, 2);
         Engine.returnWorkerToBoard(player);
         return { success: true, message: "Burn Out: +2 Compute, -1 Worker." };
     },
@@ -760,7 +771,8 @@ const CardEffects = {
         Engine.updatePlayerIncome(state, target);
         const nwErr = _checkComputeNwReq(player);
         if (!nwErr && player.computeLevel < 7) {
-            player.computeLevel += 1;
+            // Player's +1 fires Big Compute Energy / GPU Price Hike.
+            Engine.gainCompute(state, player, 1);
         }
         return { success: true, message: `Cooling Failure! ${target.userName} -1 Compute. You +1 Compute.` };
     },
@@ -957,11 +969,11 @@ const CardEffects = {
                 return { error: `Region ${regionToRemove} is not a shared region.` };
             }
             // Return the presence token to the most expensive empty
-            // slot on the target's board (rulebook p.14).
+            // slot on the target's board (rulebook p.14). Subsidy tokens
+            // are held on the Player Mat (not per-region) so removing a
+            // presence does NOT strip a subsidy token — card text only
+            // says "Remove competitor's Presence from shared region."
             Engine.returnPresenceToBoard(target, regionToRemove);
-            if (target.subsidyTokens > 0) {
-                target.subsidyTokens -= 1;
-            }
             Engine.updatePlayerIncome(state, target);
             return { success: true, message: `Squeezed! Removed ${target.userName} from Region ${regionToRemove}.` };
         }

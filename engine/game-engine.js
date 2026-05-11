@@ -174,6 +174,98 @@ const Engine = {
         player.income = Math.min(39, baseIncome + mods.income_offset);
     },
 
+    // ── Active-effect lookup ────────────────────────────────────────
+    _playerHasActiveEffect(state, playerId, slug) {
+        return state.components.some(c => {
+            if (c.ownerId !== playerId) return false;
+            if (!c.zone || !c.zone.startsWith("active_effect_card_slot_")) return false;
+            if (!c.zone.endsWith(`_p${playerId}`)) return false;
+            const def = state.cardDefinitions.find(d => d.id === c.cardDetailsId);
+            return def && def.effectSlug === slug;
+        });
+    },
+
+    // ── Centralized power gain (fires Consulting Fees on shared-presence
+    // opponents who hold the card; opts.suppressTriggers skips them). ─
+    gainPower(state, player, amount, opts) {
+        if (!amount) return 0;
+        const before = player.power;
+        player.power = this.clampPower(player.power + amount);
+        const actual = player.power - before;
+        this.updatePlayerIncome(state, player);
+        if (actual > 0 && !(opts && opts.suppressTriggers)) {
+            this._triggerConsultingFees(state, player, actual);
+        }
+        return actual;
+    },
+
+    losePower(state, player, amount) {
+        if (!amount) return 0;
+        const before = player.power;
+        player.power = this.clampPower(player.power - amount);
+        this.updatePlayerIncome(state, player);
+        return before - player.power;
+    },
+
+    _triggerConsultingFees(state, gainer, powerGained) {
+        const gainerRegions = new Set(gainer.presenceRegions);
+        for (const opp of state.players) {
+            if (opp.id === gainer.id) continue;
+            if (!opp.presenceRegions.some(r => gainerRegions.has(r))) continue;
+            if (!this._playerHasActiveEffect(state, opp.id, "consulting_fees")) continue;
+            const charge = Math.min(powerGained, gainer.corporateFunds);
+            if (charge <= 0) continue;
+            gainer.corporateFunds -= charge;
+            opp.corporateFunds += charge;
+        }
+    },
+
+    // ── Centralized compute gain (fires Big Compute Energy on the
+    // increaser and GPU Price Hike on shared-presence opponents). ─────
+    gainCompute(state, player, amount, opts) {
+        if (!amount) return 0;
+        const before = player.computeLevel;
+        player.computeLevel = Math.min(7, player.computeLevel + amount);
+        const actual = player.computeLevel - before;
+        if (actual > 0 && !(opts && opts.suppressTriggers)) {
+            if (player.tempComputeGainPowerBonus > 0) {
+                this.gainPower(state, player, player.tempComputeGainPowerBonus * actual);
+            }
+            this._triggerGpuPriceHike(state, player, actual);
+        }
+        return actual;
+    },
+
+    // Pick an active-effect slot for player. Prefers empty slots, then
+    // any non-intern occupied slot. Returns the slot number (1-3) or null
+    // if all 3 slots hold intern_program.
+    findOpenEffectSlot(state, playerId) {
+        for (let s = 1; s <= 3; s++) {
+            if (!state.components.find(c => c.zone === `active_effect_card_slot_${s}_p${playerId}`)) return s;
+        }
+        for (let s = 1; s <= 3; s++) {
+            const occ = state.components.find(c => c.zone === `active_effect_card_slot_${s}_p${playerId}`);
+            if (!occ) continue;
+            const def = state.cardDefinitions.find(d => d.id === occ.cardDetailsId);
+            if (def && def.effectSlug === "intern_program") continue;
+            return s;
+        }
+        return null;
+    },
+
+    _triggerGpuPriceHike(state, increaser, computeIncreased) {
+        const regions = new Set(increaser.presenceRegions);
+        for (const opp of state.players) {
+            if (opp.id === increaser.id) continue;
+            if (!opp.presenceRegions.some(r => regions.has(r))) continue;
+            if (!this._playerHasActiveEffect(state, opp.id, "gpu_price_hike")) continue;
+            const charge = Math.min(computeIncreased, increaser.corporateFunds);
+            if (charge <= 0) continue;
+            increaser.corporateFunds -= charge;
+            opp.corporateFunds += charge;
+        }
+    },
+
     checkReputationTiles(state, playerId) {
         // Whichever player's stats changed, rebalance the WHOLE table — the
         // rulebook (p.13) is symmetric: highest-rep player(s) hold the tiles,
@@ -192,15 +284,17 @@ const Engine = {
         // rep only — see "sticky" rule for tiles 2 & 3 below.
         const initialRepThresh = {1: 1, 2: 6, 3: 10};
 
-        // ── Level 0 (penalty): each player at rep -3 must hold one ───────
+        // ── Level 0 (penalty): rulebook p.13 — must be claimed if your
+        // reputation drops to -3, and only returned when reputation reaches
+        // 0 again. So between -2 and -1 the player KEEPS holding it.
         for (const player of players) {
             const tile = state.reputationTiles.find(t => t.ownerId === player.id && t.level === 0);
-            if (player.reputation === -3) {
+            if (player.reputation <= -3) {
                 if (!tile) {
                     const available = state.reputationTiles.find(t => t.level === 0 && t.ownerId === null);
                     if (available) available.ownerId = player.id;
                 }
-            } else if (tile) {
+            } else if (tile && player.reputation >= 0) {
                 tile.ownerId = null;
             }
         }
@@ -566,11 +660,51 @@ const Engine = {
         const finalCost = Math.max(0, baseCost + mods.compute_cost_offset - player.tempComputeMonetaryDiscount) + player.tempActionCostIncrease;
         if (player.corporateFunds < finalCost) return {error: `Insufficient funds. Need $${finalCost}.`};
         player.corporateFunds -= finalCost;
-        player.computeLevel = nextLevel;
-        if (player.tempComputeGainPowerBonus > 0) {
-            player.power = this.clampPower(player.power + player.tempComputeGainPowerBonus);
-        }
+        // Route through gainCompute so Big Compute Energy and GPU Price
+        // Hike both fire (card text says "every time you increase Compute").
+        this.gainCompute(state, player, 1);
         return {action: "compute_upgraded", new_level: player.computeLevel};
+    },
+
+    // Apply one Model Version upgrade with all the usual side-effects
+    // (rep +1, power per region or per /2, tile rebalance, espionage on
+    // shared-presence opponents, piggyback on shared-presence opponents).
+    // Used by executeTrainModel's loop AND by hack_competitor_model, which
+    // pays $4 instead of workers but is supposed to fire the same triggers.
+    _applyOneModelUpgrade(state, player) {
+        const playerId = player.id;
+        player.modelVersion += 1;
+        player.reputation = this.clampRep(player.reputation + 1);
+        const powerGain = player.tempTrainModelPerRegionPowerBonus
+            ? player.presenceCount
+            : Math.floor(player.presenceCount / 2);
+        if (player.tempTrainModelPerRegionPowerBonus) player.tempTrainModelPerRegionPowerBonus = false;
+        this.gainPower(state, player, powerGain);
+        this.checkReputationTiles(state, playerId);
+
+        const trainingRegions = new Set(player.presenceRegions);
+        for (const other of state.players.filter(p => p.id !== playerId)) {
+            if (!other.presenceRegions.some(r => trainingRegions.has(r))) continue;
+            // Corporate Espionage
+            if (this._playerHasActiveEffect(state, other.id, "corporate_espionage") && other.modelVersion >= 3) {
+                const bonus = other.netWorthLevel >= 2 ? 2 : 1;
+                this.gainPower(state, other, bonus);
+            }
+            // Piggyback
+            if (other.tempPiggybackCompetitorModel) {
+                const nextCompute = other.computeLevel + 1;
+                if (nextCompute <= 7) {
+                    const computeCost = Config.COMPUTE_UPGRADE_COSTS[nextCompute] || 999;
+                    const otherMods = this.getPlayerModifiers(state, other.id);
+                    const cost = Math.max(0, computeCost + otherMods.compute_cost_offset);
+                    const nwReq = Config.COMPUTE_NET_WORTH_REQ[nextCompute] || 0;
+                    if (other.corporateFunds >= cost && other.netWorthLevel >= nwReq) {
+                        other.corporateFunds -= cost;
+                        this.gainCompute(state, other, 1);
+                    }
+                }
+            }
+        }
     },
 
     executeTrainModel(state, playerId, workerCount) {
@@ -602,53 +736,9 @@ const Engine = {
             if (player.computeLevel < nextV) break;
             if (player.netWorthLevel < (Config.MODEL_NET_WORTH_REQ[nextV] || 0)) break;
 
-            player.modelVersion = nextV;
             remaining -= finalReq;
             upgradesApplied += 1;
-            player.reputation = this.clampRep(player.reputation + 1);
-            if (player.tempTrainModelPerRegionPowerBonus) {
-                player.power = this.clampPower(player.power + player.presenceCount);
-                player.tempTrainModelPerRegionPowerBonus = false;
-            } else {
-                player.power = this.clampPower(player.power + Math.floor(player.presenceCount / 2));
-            }
-            this.updatePlayerIncome(state, player);
-            this.checkReputationTiles(state, playerId);
-
-            // Passive triggers fire once per Model Version increase.
-            const trainingRegions = new Set(player.presenceRegions);
-            for (const other of state.players.filter(p => p.id !== playerId)) {
-                const otherRegions = new Set(other.presenceRegions);
-                const shared = [...trainingRegions].filter(r => otherRegions.has(r));
-                if (shared.length === 0) continue;
-
-                // Corporate Espionage
-                const espionageCards = state.components.filter(c =>
-                    c.zone.startsWith(`active_effect_card_slot_`) && c.zone.endsWith(`_p${other.id}`)
-                );
-                for (const ec of espionageCards) {
-                    const def = state.cardDefinitions.find(d => d.id === ec.cardDetailsId);
-                    if (def && def.effectSlug === "corporate_espionage" && other.modelVersion >= 3) {
-                        const bonus = other.netWorthLevel >= 2 ? 2 : 1;
-                        other.power = this.clampPower(other.power + bonus);
-                        this.updatePlayerIncome(state, other);
-                    }
-                }
-                // Piggyback
-                if (other.tempPiggybackCompetitorModel) {
-                    const nextCompute = other.computeLevel + 1;
-                    if (nextCompute <= 7) {
-                        const computeCost = Config.COMPUTE_UPGRADE_COSTS[nextCompute] || 999;
-                        const otherMods = this.getPlayerModifiers(state, other.id);
-                        const cost = Math.max(0, computeCost + otherMods.compute_cost_offset);
-                        const nwReq = Config.COMPUTE_NET_WORTH_REQ[nextCompute] || 0;
-                        if (other.corporateFunds >= cost && other.netWorthLevel >= nwReq) {
-                            other.corporateFunds -= cost;
-                            other.computeLevel = nextCompute;
-                        }
-                    }
-                }
-            }
+            this._applyOneModelUpgrade(state, player);
         }
         return {
             action: "model_trained",
@@ -664,8 +754,7 @@ const Engine = {
         const player = this.getPlayer(state, playerId);
         const bonus = Config.MARKETING_BONUSES[player.netWorthLevel];
         player.reputation = this.clampRep(player.reputation + bonus.reputation);
-        player.power = this.clampPower(player.power + bonus.power);
-        this.updatePlayerIncome(state, player);
+        if (bonus.power) this.gainPower(state, player, bonus.power);
         this.checkReputationTiles(state, playerId);
         return {action: "marketing_resolved", new_reputation: player.reputation};
     },
@@ -810,7 +899,15 @@ const Engine = {
             if (!targetSlot || targetSlot < 1 || targetSlot > 3) return {error: "Invalid slot for Effect Card."};
             const targetZone = `active_effect_card_slot_${targetSlot}_p${playerId}`;
             const existing = state.components.find(c => c.zone === targetZone);
-            if (existing) { existing.zone = `${existing.subType}_discard`; existing.ownerId = null; }
+            if (existing) {
+                const exDef = state.cardDefinitions.find(d => d.id === existing.cardDetailsId);
+                if (exDef && exDef.effectSlug === "intern_program") {
+                    // Card text: "Once played, this card cannot be discarded."
+                    return {error: "Intern Volunteer Program cannot be displaced. Pick a different slot."};
+                }
+                existing.zone = `${existing.subType}_discard`;
+                existing.ownerId = null;
+            }
             card.zone = targetZone;
             const effectRes = this.applyCardEffect(state, playerId, cardId, payload);
             if (effectRes && effectRes.error) return effectRes;
@@ -905,11 +1002,23 @@ const Engine = {
                 const cardComp = state.components.find(c => c.id === cardId);
                 const cardDef = cardComp && state.cardDefinitions.find(d => d.id === cardComp.cardDetailsId);
                 if (cardDef && cardDef.isEffect) {
+                    // Prefer empty slots; then any non-intern occupied slot.
+                    let chosen = null;
                     for (let s = 1; s <= 3; s++) {
                         if (!state.components.find(c => c.zone === `active_effect_card_slot_${s}_p${playerId}`)) {
-                            targetSlot = s; break;
+                            chosen = s; break;
                         }
                     }
+                    if (chosen == null) {
+                        for (let s = 1; s <= 3; s++) {
+                            const occ = state.components.find(c => c.zone === `active_effect_card_slot_${s}_p${playerId}`);
+                            if (!occ) continue;
+                            const occDef = state.cardDefinitions.find(d => d.id === occ.cardDetailsId);
+                            if (occDef && occDef.effectSlug === "intern_program") continue;
+                            chosen = s; break;
+                        }
+                    }
+                    if (chosen != null) targetSlot = chosen;
                 }
             }
             return this.playCard(state, playerId, cardId, targetSlot, cardPayload);
