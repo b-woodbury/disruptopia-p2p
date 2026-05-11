@@ -5,6 +5,35 @@ rogue AI company and race competitors to take over the world. Game state lives
 in the browser (IndexedDB); remote multiplayer is true browser-to-browser P2P
 over WebRTC.
 
+## Quickstart: play with a friend across the internet
+
+**Both players** (one-time setup on each machine):
+
+```bash
+git clone https://github.com/b-woodbury/disruptopia-p2p.git
+cd disruptopia-p2p
+pip install fastapi uvicorn
+uvicorn app:app --port 7869
+```
+
+Then open <http://localhost:7869/> in your browser.
+
+**Host:** click *Host Online*, fill in player names + starting regions, click
+*Host Game*. You'll see a 10-character room code on the setup screen.
+
+**Joiner:** click *Join Online*, paste the room code, pick the player slot
+the host assigned you, click *Join Game*.
+
+That's it — no port forwarding, no shared server URL, no Tailscale. The
+browsers find each other via [PeerJS](https://peerjs.com/)'s free public
+broker, then talk directly over an encrypted WebRTC data channel. Works
+through typical home NATs.
+
+**Sanity check before your first cross-internet game:** run
+`python tests/multiplayer_test.py` on your machine — if the 31 assertions
+pass, your local PeerJS path works, which almost always means the
+cross-internet path will too.
+
 ## Architecture
 
 - **Frontend**: plain HTML/CSS/JS, no build step. The full game engine runs
