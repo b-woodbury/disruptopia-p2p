@@ -483,21 +483,74 @@
 <!-- SETUP SCREEN -->
 <div id="setup-screen">
     <section>
-        <h2 style="text-align: center; margin-bottom: 20px; font-size: 1.4rem; font-family: 'Fredoka', cursive; color: #4f46e5;">Disruptopia - New Game</h2>
-        <div style="margin-bottom: 15px;">
-            <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Number of Players</label><br>
-            <select id="setup-player-count" onchange="updateSetupForm()" style="background: #ffffff; color: #1e1b18; border: 1px solid #d4c9b8; padding: 8px; width: 100%; font-size: 1rem; border-radius: 8px; font-family: 'Inter', system-ui, sans-serif;">
-                <option value="2">2 Players</option>
-                <option value="3">3 Players</option>
-                <option value="4">4 Players</option>
-                <option value="5">5 Players</option>
-            </select>
+        <h2 style="text-align: center; margin-bottom: 16px; font-size: 1.4rem; font-family: 'Fredoka', cursive; color: #4f46e5;">Disruptopia - New Game</h2>
+
+        <!-- Mode tabs: Local / Host / Join -->
+        <div id="setup-mode-tabs" style="display:flex; gap:6px; margin-bottom:14px;">
+            <button id="setup-tab-local" onclick="setSetupMode('local')" style="flex:1; padding:8px; border:1px solid #4f46e5; background:#4f46e5; color:#fff; border-radius:8px; font-family:'Inter',system-ui,sans-serif; font-weight:600; cursor:pointer;">Local Game</button>
+            <button id="setup-tab-host" onclick="setSetupMode('host')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Inter',system-ui,sans-serif; cursor:pointer;">Host Online</button>
+            <button id="setup-tab-join" onclick="setSetupMode('join')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Inter',system-ui,sans-serif; cursor:pointer;">Join Online</button>
         </div>
-        <div id="setup-players-container"></div>
-        <div id="setup-map-container" style="margin: 15px 0;"></div>
-        <button onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
-            Launch Game
-        </button>
+
+        <!-- LOCAL + HOST share the same player config form -->
+        <div id="setup-local-host">
+            <div style="margin-bottom: 12px;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Number of Players</label><br>
+                <select id="setup-player-count" onchange="updateSetupForm()" style="background: #ffffff; color: #1e1b18; border: 1px solid #d4c9b8; padding: 8px; width: 100%; font-size: 1rem; border-radius: 8px; font-family: 'Inter', system-ui, sans-serif;">
+                    <option value="2">2 Players</option>
+                    <option value="3">3 Players</option>
+                    <option value="4">4 Players</option>
+                    <option value="5">5 Players</option>
+                </select>
+            </div>
+            <div id="setup-players-container"></div>
+            <div id="setup-map-container" style="margin: 15px 0;"></div>
+
+            <!-- Relay URL (only shown in host mode) -->
+            <div id="setup-host-relay" style="display:none; margin: 8px 0;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Relay URL</label><br>
+                <input id="setup-relay-url-host" type="text" value="/api" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Inter',system-ui,sans-serif;">
+                <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">Use <code>/api</code> for same-origin (this server), or a full URL like <code>https://gx10-abd7.tailea39b3.ts.net/api</code> for remote access.</div>
+            </div>
+
+            <button id="setup-launch-btn" onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
+                Launch Game
+            </button>
+
+            <!-- After hosting, show the game code here -->
+            <div id="setup-host-code" style="display:none; margin-top:12px; padding:12px; background:#eef2ff; border:1px solid #4f46e5; border-radius:10px; text-align:center;">
+                <div style="color:#78716c; font-size:0.8rem;">Share this code with your opponents:</div>
+                <div id="setup-host-code-value" style="font-family:'Fredoka',cursive; font-size:2rem; letter-spacing:0.3rem; color:#4f46e5; font-weight:700; margin:6px 0;"></div>
+                <div id="setup-host-status" style="color:#78716c; font-size:0.75rem;"></div>
+            </div>
+        </div>
+
+        <!-- JOIN panel -->
+        <div id="setup-join" style="display:none;">
+            <div style="margin-bottom: 10px;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Relay URL</label><br>
+                <input id="setup-relay-url-join" type="text" value="/api" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Inter',system-ui,sans-serif;">
+                <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">Same URL as the host shared with you (e.g. <code>https://...ts.net/api</code>).</div>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Game Code</label><br>
+                <input id="setup-join-code" type="text" maxlength="6" placeholder="ABCDEF" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:1rem; font-family:'Fredoka',cursive; letter-spacing:0.2rem; text-transform:uppercase;">
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Which player slot are you?</label><br>
+                <select id="setup-join-slot" style="background:#ffffff; color:#1e1b18; border:1px solid #d4c9b8; padding:8px; width:100%; font-size:0.95rem; border-radius:8px;">
+                    <option value="2">Player 2</option>
+                    <option value="3">Player 3</option>
+                    <option value="4">Player 4</option>
+                    <option value="5">Player 5</option>
+                </select>
+                <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">The host is always Player 1; pick whichever slot the host assigned you.</div>
+            </div>
+            <button onclick="joinOnlineGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 6px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
+                Join Game
+            </button>
+            <div id="setup-join-status" style="margin-top:8px; color:#78716c; font-size:0.75rem; text-align:center;"></div>
+        </div>
     </section>
 </div>
 
@@ -521,6 +574,7 @@
             <div class="stat-cell"><span class="lbl">Reputation</span><span class="val" id="stat-reputation" style="color:#4f46e5;">0</span></div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
+            <div id="mp-banner" style="display:none; align-items:center; gap:6px; padding:2px 8px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px; font-size:0.7rem;"></div>
             <span id="round-display" style="font-size: 0.9rem; color: #4f46e5; font-weight: bold; font-family: 'Fredoka', cursive;"></span>
             <button onclick="toggleRules()" style="background: #4f46e5; color: #fff; border: none; padding: 4px 10px; font-size: 0.7rem; cursor: pointer; border-radius: 6px; font-weight: 600;" title="Rules Reference">?</button>
         </div>
