@@ -56,9 +56,13 @@ undo, the round-execute trigger, and discards are broadcast as an action log
 through the relay; each client applies remote actions to its own copy. The
 engine is deterministic, so all clients converge. Polling interval is 2.5s.
 
-Limitations:
-- No reconnection: if you reload mid-game your local IndexedDB still has the
-  state, but you'll need to rejoin via the code to resume action sync.
+Mid-game reconnect: every refresh pushes the current engine state to the
+relay as a snapshot, and the multiplayer context (mode, game code, relay
+URL, player slot) is persisted to IndexedDB alongside the state. If you
+reload the page, `init()` re-reads the saved context, fetches the
+authoritative snapshot from the relay, installs it, and resumes polling.
+Falls back to local-only mode if the relay or the room is unreachable
+(e.g. room expired past its 24h TTL).
 
 ## Tests
 

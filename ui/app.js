@@ -43,17 +43,69 @@ for (const [c, info] of Object.entries(Config.RECRUIT_COSTS)) WORKER_COSTS[c] = 
 
 // ── INIT ──────────────────────────────────────────────────
 async function init() {
-    // Try to load saved game from IndexedDB
     try {
-        const saved = await Persistence.loadState(1);
-        if (saved && saved.game && saved.players && saved.players.length > 0) {
-            Game.localState = saved;
+        const record = await Persistence.loadFullRecord(1);
+        if (record && record.state && record.state.game && record.state.players && record.state.players.length > 0) {
+            Game.localState = record.state;
+            if (record.playerId != null) Game.PLAYER_ID = record.playerId;
             showGameScreen();
             refreshData();
+            // If the saved game was a multiplayer session, attempt to
+            // re-establish the relay connection and replay any actions
+            // that happened while we were offline.
+            const savedMp = record.mp;
+            if (savedMp && (savedMp.mode === 'host' || savedMp.mode === 'join') && savedMp.gameCode && savedMp.relayUrl) {
+                await attemptReconnect(savedMp, record.lastActionIndex || 0);
+            }
             return;
         }
-    } catch(e) { console.log("No saved game found."); }
+    } catch(e) { console.log("No saved game found.", e); }
     showSetupScreen();
+}
+
+// Re-establish a multiplayer relay session after a reload.
+// Strategy: fetch the relay's authoritative state snapshot (which every
+// client pushes on every refresh) and install it. Then resume polling for
+// new actions. If the relay or the room is unreachable, fall back to
+// local-only mode and surface a warning.
+async function attemptReconnect(savedMp, lastIndex) {
+    addLog(`Reconnecting to ${savedMp.gameCode}…`);
+    try {
+        const stateRes = await fetch(`${savedMp.relayUrl}/room/${savedMp.gameCode}/state`);
+        if (!stateRes.ok) throw new Error(`relay returned HTTP ${stateRes.status}`);
+        const remoteState = await stateRes.json();
+        // Sanity check the snapshot before installing.
+        if (!remoteState || !remoteState.players || !remoteState.game) {
+            throw new Error('relay returned empty / malformed state');
+        }
+        // Adopt the relay's view. Our saved local state may be older if
+        // peers acted while we were offline.
+        Game.localState = remoteState;
+
+        // Catch up the relay's action index so polling picks up only
+        // *new* actions from here, not the entire log.
+        const actRes = await fetch(`${savedMp.relayUrl}/room/${savedMp.gameCode}/actions?since=0`);
+        const actData = actRes.ok ? await actRes.json() : {lastIndex: lastIndex};
+        Relay.configure(savedMp.relayUrl, savedMp.gameCode, Game.PLAYER_ID);
+        Relay._lastActionIndex = actData.lastIndex != null ? actData.lastIndex : lastIndex;
+        Relay.connected = true;
+        Game.mp.mode = savedMp.mode;
+        Game.mp.gameCode = savedMp.gameCode;
+        Game.mp.relayUrl = savedMp.relayUrl;
+        Game.mp.connected = true;
+        wireRelayCallbacks();
+        Relay.startPolling(2500);
+        refreshData();
+        renderMpBanner();
+        addLog(`Reconnected as ${savedMp.mode === 'host' ? 'Host' : 'Player'} ${Game.PLAYER_ID}.`);
+    } catch (e) {
+        Game.mp.mode = 'local';
+        Game.mp.connected = false;
+        Game.mp.gameCode = null;
+        Game.mp.relayUrl = null;
+        renderMpBanner();
+        addLog(`WARN: could not reconnect to ${savedMp.gameCode} (${e.message || e}). Continuing in local mode.`);
+    }
 }
 
 function showSetupScreen() {
@@ -215,7 +267,19 @@ function refreshData() {
     }
 
     // Auto-save to IndexedDB
-    Persistence.saveState(Game.localState).catch(e => console.warn("Save failed:", e));
+    // Persist MP context too so reload can re-establish the relay session.
+    Persistence.saveState(Game.localState, {
+        mp: Game.mp,
+        playerId: Game.PLAYER_ID,
+        lastActionIndex: (typeof Relay !== 'undefined' && Relay._lastActionIndex) || 0,
+    }).catch(e => console.warn("Save failed:", e));
+
+    // Push the engine state to the relay so any reconnecting peer can
+    // bootstrap from a fresh snapshot. Fire-and-forget — relay errors
+    // shouldn't disrupt local play.
+    if (Game.mp.mode !== 'local' && Game.mp.connected && !Game.mp.applyingRemote) {
+        Relay.pushState(Game.localState);
+    }
 }
 
 async function switchPlayer(newId) {

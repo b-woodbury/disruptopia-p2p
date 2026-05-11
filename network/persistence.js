@@ -22,7 +22,7 @@ const Persistence = {
         });
     },
 
-    async saveState(gameState) {
+    async saveState(gameState, opts = {}) {
         const db = await this.open();
         return new Promise((resolve, reject) => {
             const tx = db.transaction(this.STORE_NAME, "readwrite");
@@ -30,6 +30,12 @@ const Persistence = {
             const record = {
                 gameId: gameState.game.id,
                 state: JSON.parse(JSON.stringify(gameState)),
+                // Multiplayer context — present if this game is being
+                // hosted or joined; null/undefined for local games. Used
+                // by init() to restore the relay connection on reload.
+                mp: opts.mp ? JSON.parse(JSON.stringify(opts.mp)) : null,
+                playerId: opts.playerId != null ? opts.playerId : null,
+                lastActionIndex: opts.lastActionIndex || 0,
                 savedAt: Date.now(),
             };
             const req = store.put(record);
@@ -45,6 +51,19 @@ const Persistence = {
             const store = tx.objectStore(this.STORE_NAME);
             const req = store.get(gameId);
             req.onsuccess = () => resolve(req.result ? req.result.state : null);
+            req.onerror = (e) => reject(e.target.error);
+        });
+    },
+
+    // Same as loadState but returns the full record (state + mp + playerId +
+    // lastActionIndex) so init() can decide whether to attempt a reconnect.
+    async loadFullRecord(gameId) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(this.STORE_NAME, "readonly");
+            const store = tx.objectStore(this.STORE_NAME);
+            const req = store.get(gameId);
+            req.onsuccess = () => resolve(req.result || null);
             req.onerror = (e) => reject(e.target.error);
         });
     },

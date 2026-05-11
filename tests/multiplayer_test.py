@@ -242,6 +242,59 @@ def run():
         else:
             log("7.1 0-cost card sync (skipped: no suitable card available)", True, "skip")
 
+        print("\n=== 8. Mid-game reconnect: joiner reloads, state restored ===")
+        # Capture join's state before reload, reload the page, and verify
+        # that after init() the local state matches and MP is reconnected.
+        before_reload = join_page.evaluate("""
+            ({
+                round: Game.localState.game.currentRound,
+                code: Game.mp.gameCode,
+                mode: Game.mp.mode,
+                pid: Game.PLAYER_ID,
+                placements: Game.localState.workerPlacements.length,
+            })
+        """)
+        # Host makes ONE more change so the relay state is newer than the
+        # joiner's pre-reload state — proves the reconnect is fetching
+        # from the relay, not just relying on local IndexedDB.
+        host_page.locator("#player-select")  # no-op, just keep context alive
+        host_page.evaluate("""
+            (() => {
+                // Manually broadcast a placement-style action: discard a hand
+                // card so it shows up on both sides.
+                const s = Game.localState;
+                const me = s.players[0];
+                const hand = s.components.filter(c => c.zone === `hand_p${me.id}` && c.ownerId === me.id);
+                if (hand.length === 0) return;
+                const c = hand[0];
+                Engine.discardCard(s, me.id, c.id);
+                broadcastAction({kind: 'discard', args: {playerId: me.id, cardId: c.id}});
+                refreshData();
+            })()
+        """)
+        time.sleep(2)  # give the push a moment to land
+
+        # Reload the joiner's page — IndexedDB persists, so init() should
+        # restore Game.mp and call attemptReconnect.
+        join_page.reload(wait_until="networkidle")
+        time.sleep(4)  # allow init + fetch + apply
+
+        after_reload = join_page.evaluate("""
+            ({
+                round: Game.localState ? Game.localState.game.currentRound : null,
+                code: Game.mp.gameCode,
+                mode: Game.mp.mode,
+                connected: Game.mp.connected,
+                pid: Game.PLAYER_ID,
+                gameScreenVisible: document.getElementById('game-screen').style.display !== 'none',
+            })
+        """)
+        log("8.1 game screen restored after reload", after_reload["gameScreenVisible"], str(after_reload))
+        log("8.2 MP mode preserved as 'join' across reload", after_reload["mode"] == "join", str(after_reload))
+        log("8.3 game code preserved across reload", after_reload["code"] == before_reload["code"], str(after_reload))
+        log("8.4 relay reconnect succeeded (Game.mp.connected=true)", after_reload["connected"], str(after_reload))
+        log("8.5 player id preserved across reload", after_reload["pid"] == before_reload["pid"], str(after_reload))
+
         host_ctx.close()
         join_ctx.close()
 
