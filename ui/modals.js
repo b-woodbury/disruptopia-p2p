@@ -90,6 +90,9 @@ function promptDiscardModal(player, limit) {
                 Game.discardSelectedCard = null;
                 const result = Engine.discardCard(Game.localState, discardPlayerId, card.id);
                 if (result.error) { showErrorModal("Discard Failed", result.error); }
+                else if (typeof broadcastAction === 'function') {
+                    broadcastAction({kind: 'discard', args: {playerId: discardPlayerId, cardId: card.id}});
+                }
                 Game.isDiscarding = false;
                 refreshData();
             };

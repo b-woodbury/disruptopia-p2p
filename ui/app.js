@@ -14,6 +14,16 @@ window.Game = {
     discardSelectedCard: null,
     setupDragging: null,
     setupClickSelected: null,
+    // Multiplayer state. mode is 'local' | 'host' | 'join'. In 'host'/'join'
+    // mode, every state-changing action is broadcast through the relay and
+    // Game.PLAYER_ID is locked to the slot the player took.
+    mp: {
+        mode: 'local',
+        gameCode: null,
+        relayUrl: null,
+        connected: false,
+        applyingRemote: false,  // set during remote-action application to skip re-broadcast
+    },
 };
 
 // Constants aliases for rendering compatibility
@@ -261,6 +271,36 @@ function updateSetupForm() {
     }
 }
 
+function setSetupMode(mode) {
+    Game.mp.mode = mode;
+    const tabs = {local: 'setup-tab-local', host: 'setup-tab-host', join: 'setup-tab-join'};
+    for (const [m, id] of Object.entries(tabs)) {
+        const el = document.getElementById(id);
+        if (m === mode) {
+            el.style.background = '#4f46e5'; el.style.color = '#fff'; el.style.borderColor = '#4f46e5';
+            el.style.fontWeight = '600';
+        } else {
+            el.style.background = '#fff'; el.style.color = '#1e1b18'; el.style.borderColor = '#d4c9b8';
+            el.style.fontWeight = '400';
+        }
+    }
+    const localHost = document.getElementById('setup-local-host');
+    const joinPanel = document.getElementById('setup-join');
+    const hostRelay = document.getElementById('setup-host-relay');
+    const launchBtn = document.getElementById('setup-launch-btn');
+    const hostCode = document.getElementById('setup-host-code');
+    if (mode === 'join') {
+        localHost.style.display = 'none';
+        joinPanel.style.display = 'block';
+    } else {
+        localHost.style.display = 'block';
+        joinPanel.style.display = 'none';
+        hostRelay.style.display = (mode === 'host') ? 'block' : 'none';
+        launchBtn.innerText = (mode === 'host') ? 'Host Game' : 'Launch Game';
+        hostCode.style.display = 'none';
+    }
+}
+
 async function launchGame() {
     const count = parseInt(document.getElementById('setup-player-count').value);
     const names = [], regionIds = [];
@@ -268,19 +308,142 @@ async function launchGame() {
         names.push(document.getElementById(`setup-name-${i}`).value.trim() || `Player ${i+1}`);
         regionIds.push(parseInt(document.getElementById(`setup-region-${i}`).value));
     }
-    // Validate unique regions
     if (new Set(regionIds).size !== regionIds.length) {
         alert("Each player needs a unique starting region."); return;
     }
 
-    // Create game locally
     Game.localState = Seed.createGame(names, regionIds);
     Game.PLAYER_ID = Game.localState.players[0].id;
     localStorage.setItem('active_player_id', Game.PLAYER_ID);
 
+    if (Game.mp.mode === 'host') {
+        const relayUrl = document.getElementById('setup-relay-url-host').value.trim() || '/api';
+        const code = Relay.generateGameCode();
+        Relay.configure(relayUrl, code, Game.PLAYER_ID);
+        const status = document.getElementById('setup-host-status');
+        status.innerText = 'Creating room…';
+        document.getElementById('setup-host-code-value').innerText = code;
+        document.getElementById('setup-host-code').style.display = 'block';
+        const res = await Relay.createRoom(Game.localState);
+        if (res.error) {
+            status.innerText = `Failed: ${res.error}`;
+            return;
+        }
+        Game.mp.gameCode = code;
+        Game.mp.relayUrl = relayUrl;
+        Game.mp.connected = true;
+        wireRelayCallbacks();
+        Relay.startPolling(2500);
+        status.innerText = 'Hosted. Waiting for joiners — share the code above.';
+    }
+
     showGameScreen();
     refreshData();
+    renderMpBanner();
     addLog(`Game created with ${names.length} players.`);
+    if (Game.mp.mode === 'host') addLog(`Hosting at code ${Game.mp.gameCode}.`);
+}
+
+async function joinOnlineGame() {
+    const relayUrl = document.getElementById('setup-relay-url-join').value.trim() || '/api';
+    const code = document.getElementById('setup-join-code').value.trim().toUpperCase();
+    const slot = parseInt(document.getElementById('setup-join-slot').value);
+    const status = document.getElementById('setup-join-status');
+    if (!code) { status.innerText = 'Game code required.'; return; }
+
+    // Player IDs are 1-indexed in the order Seed.createGame creates them.
+    const joinerPlayerId = slot;
+    Relay.configure(relayUrl, code, joinerPlayerId);
+    status.innerText = 'Connecting…';
+
+    const res = await Relay.joinRoom();
+    if (res.error) { status.innerText = `Failed: ${res.error}`; return; }
+    if (!res.state || !res.state.players) {
+        status.innerText = 'Host has not initialized state yet.'; return;
+    }
+    if (!res.state.players.find(p => p.id === joinerPlayerId)) {
+        status.innerText = `Slot ${slot} does not exist in this game.`; return;
+    }
+
+    Game.mp.mode = 'join';
+    Game.mp.gameCode = code;
+    Game.mp.relayUrl = relayUrl;
+    Game.mp.connected = true;
+    Game.localState = res.state;
+    Game.PLAYER_ID = joinerPlayerId;
+    localStorage.setItem('active_player_id', Game.PLAYER_ID);
+    wireRelayCallbacks();
+    // Apply any actions that were queued before we joined.
+    if (res.actionCount && res.actionCount > 0) {
+        const catchup = await fetch(`${relayUrl}/room/${code}/actions?since=0`).then(r => r.json()).catch(() => ({actions: []}));
+        for (const wrapped of (catchup.actions || [])) {
+            if (wrapped.playerId !== joinerPlayerId) applyRemoteAction(wrapped.action);
+        }
+    }
+    Relay.startPolling(2500);
+    status.innerText = 'Joined.';
+    showGameScreen();
+    refreshData();
+    renderMpBanner();
+    addLog(`Joined ${code} as Player ${slot}.`);
+}
+
+// ── MULTIPLAYER WIRING ───────────────────────────────────
+function wireRelayCallbacks() {
+    Relay.onActionReceived = (wrapped) => {
+        try { applyRemoteAction(wrapped.action); }
+        catch (e) { console.error('applyRemoteAction failed', e); }
+    };
+}
+
+// Called by placeWorker / undoLastPlacement / executeStrategy / discardCard
+// after the local engine mutation succeeds. Suppressed when we're applying
+// a remote action (so we don't loop the action back to the relay).
+function broadcastAction(action) {
+    if (Game.mp.mode === 'local' || !Game.mp.connected) return;
+    if (Game.mp.applyingRemote) return;
+    Relay.sendAction(action);
+}
+
+function applyRemoteAction(action) {
+    if (!action || !action.kind) return;
+    Game.mp.applyingRemote = true;
+    try {
+        if (action.kind === 'place_worker') {
+            const a = action.args;
+            Engine.placeWorker(Game.localState, a.playerId, a.workerNumber, a.slug, a.targetRegion, a.targetCardId, a.targetSubAction);
+        } else if (action.kind === 'undo_placement') {
+            Engine.undoLastPlacement(Game.localState, action.args.playerId);
+        } else if (action.kind === 'execute_strategy') {
+            // Re-run the same round resolution + finishRound the host ran.
+            // Discard prompts after finishRound only fire for the LOCAL player.
+            startStrategyExecution();
+        } else if (action.kind === 'discard') {
+            Engine.discardCard(Game.localState, action.args.playerId, action.args.cardId);
+        }
+        refreshData();
+    } finally {
+        Game.mp.applyingRemote = false;
+    }
+}
+
+function renderMpBanner() {
+    const banner = document.getElementById('mp-banner');
+    if (!banner) return;
+    if (Game.mp.mode === 'local' || !Game.mp.connected) {
+        banner.style.display = 'none';
+        return;
+    }
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+        <span style="font-weight:600; color:#4f46e5;">${Game.mp.mode === 'host' ? 'Hosting' : 'Joined'}</span>
+        <span style="color:#78716c;">code</span>
+        <span style="font-family:'Fredoka',cursive; letter-spacing:0.15rem; color:#4f46e5; font-weight:600;">${Game.mp.gameCode}</span>
+        <span style="color:#78716c;">as P${Game.PLAYER_ID}</span>
+    `;
+    // In MP, lock the player selector to the local player.
+    const sel = document.getElementById('player-select');
+    if (sel) sel.disabled = true;
 }
 
 // ── DISCARD (local) ──────────────────────────────────────

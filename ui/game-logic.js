@@ -133,11 +133,15 @@ async function placeWorker(actionName) {
         showErrorModal("Insufficient Workers", "Not enough Tech Workers available."); return;
     }
 
-    // Place all workers locally
+    // Place all workers locally, broadcasting each placement.
     let lastResult = {};
     for (const wId of workersToPlace) {
         lastResult = Engine.placeWorker(Game.localState, Game.PLAYER_ID, wId, slug, targetRegion, targetCardId, targetSubAction);
         if (lastResult.error) { showErrorModal("Action Unavailable", lastResult.error); break; }
+        broadcastAction({
+            kind: 'place_worker',
+            args: {playerId: Game.PLAYER_ID, workerNumber: wId, slug, targetRegion, targetCardId, targetSubAction},
+        });
     }
     if (!lastResult.error) addLog(`Workers ${workersToPlace.join(",")} -> ${actionName}`);
     refreshData();
@@ -152,11 +156,25 @@ async function startStrategyExecution() {
         Game.currentGameState.placements.filter(pl => pl.player_id === p.id).length === 0
     );
     if (unready.length > 0) {
+        // In MP, do not auto-switch — each player drives their own device.
+        if (Game.mp.mode !== 'local' && Game.mp.connected) {
+            const me = Game.currentGameState.players.find(p => p.id === Game.PLAYER_ID);
+            const meReady = !unready.find(p => p.id === Game.PLAYER_ID);
+            if (!meReady && me) {
+                addLog(`You still need to place workers.`);
+                return;
+            }
+            addLog(`Waiting for ${unready.map(p => p.name).join(', ')} to place workers.`);
+            return;
+        }
         await switchPlayer(unready[0].id);
         await promptDiscardIfNeeded(unready[0].id);
         addLog(`Switching to ${unready[0].name} — they need to place workers.`);
         return;
     }
+
+    // Broadcast the execute trigger so other clients run the same resolution.
+    broadcastAction({kind: 'execute_strategy', args: {}});
 
     addLog("SYSTEM: Executing Quarterly Strategy...");
     const resolveResult = Engine.resolveEntireRound(Game.localState);
@@ -173,22 +191,26 @@ async function startStrategyExecution() {
 
     refreshData();
     if (Game.currentGameState?.players.length > 0) {
-        // Every player who went over the hand limit after the round-start draw
-        // must discard down before play continues — not just the next starting
-        // player. Switch to each over-limit player so they see their own hand.
-        for (const p of Game.currentGameState.players) {
-            const limit = p.hand_limit || 5;
-            if ((p.hand?.length || 0) > limit) {
-                await switchPlayer(p.id);
-                await promptDiscardIfNeeded(p.id);
+        if (Game.mp.mode !== 'local' && Game.mp.connected) {
+            // MP: only the local player is prompted; other clients prompt
+            // their own user. The dropdown is locked in MP.
+            await promptDiscardIfNeeded(Game.PLAYER_ID);
+        } else {
+            // Hot-seat: every over-limit player gets prompted in turn.
+            for (const p of Game.currentGameState.players) {
+                const limit = p.hand_limit || 5;
+                if ((p.hand?.length || 0) > limit) {
+                    await switchPlayer(p.id);
+                    await promptDiscardIfNeeded(p.id);
+                }
             }
-        }
 
-        const newP1 = Game.currentGameState.p1_index ?? 0;
-        const first = Game.currentGameState.players.sort((a, b) => a.id - b.id)[newP1 % Game.currentGameState.players.length];
-        if (first) {
-            await switchPlayer(first.id);
-            addLog(`${first.name}'s turn to place workers.`);
+            const newP1 = Game.currentGameState.p1_index ?? 0;
+            const first = Game.currentGameState.players.sort((a, b) => a.id - b.id)[newP1 % Game.currentGameState.players.length];
+            if (first) {
+                await switchPlayer(first.id);
+                addLog(`${first.name}'s turn to place workers.`);
+            }
         }
     }
 }
@@ -332,6 +354,9 @@ async function undoPlacement() {
     if (!Game.PLAYER_ID) return;
     const result = Engine.undoLastPlacement(Game.localState, Game.PLAYER_ID);
     if (result.error) { addLog(`Error: ${result.error}`); }
-    else { addLog(`Undo: W${result.worker_number} from ${result.from_action}`); }
+    else {
+        addLog(`Undo: W${result.worker_number} from ${result.from_action}`);
+        broadcastAction({kind: 'undo_placement', args: {playerId: Game.PLAYER_ID}});
+    }
     refreshData();
 }
