@@ -356,6 +356,76 @@ def run():
         log("R.6 4-player: top 2 reps both hold a level-1 tile",
             r == [1, 2], str(r))
 
+        # ────────────────────────────────────────────────────────
+        print("\n=== RECRUIT sub-action: rulebook p.7-8 ===")
+        # ────────────────────────────────────────────────────────
+        # Rulebook: "The new Tech Worker is placed on any action of your
+        # choice on your Quarterly Strategy Board and can be played this
+        # round." The engine reads kwargs.targetSubAction to decide where
+        # the recruited worker goes.
+        fresh_game(page, 2)
+        recruit = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.corporateFunds = 99;
+                // Place a recruit worker that says "the new worker does Marketing".
+                Engine.placeWorker(s, p1.id, 1, "recruit", null, null, "marketing");
+                Engine.placeWorker(s, p1.id, 2, "marketing", null, null, null);
+                Engine.placeWorker(s, p1.id, 3, "buy_chips", null, null, null);
+                const beforeRep = p1.reputation;
+                const result = Engine.resolveEntireRound(s);
+                // Worker 4 should exist (recruited) on Marketing.
+                const recruitedWorker = s.workerPlacements.find(w => w.workerNumber === 4 && w.actionType === "marketing");
+                const afterRep = p1.reputation;
+                return {
+                    beforeRep, afterRep,
+                    recruitedWorkerExists: !!recruitedWorker,
+                    workerActionType: recruitedWorker ? recruitedWorker.actionType : null,
+                    totalWorkers: p1.totalWorkers,
+                };
+            })()
+        """)
+        log("Re.1 Recruit creates a new worker placement targeting the chosen action",
+            recruit["recruitedWorkerExists"] and recruit["workerActionType"] == "marketing",
+            str(recruit))
+        log("Re.2 totalWorkers incremented to 4 after recruit",
+            recruit["totalWorkers"] == 4, str(recruit))
+        # Each Marketing fires +3 rep at Startup. With 2 marketing workers
+        # (one direct, one recruited) the rep should bump twice (0 → 6).
+        log("Re.3 The recruited worker actually executed (rep bumped twice)",
+            recruit["afterRep"] >= 6,
+            f"before={recruit['beforeRep']} after={recruit['afterRep']}")
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Pending interactions are produced + surface to responder ===")
+        # ────────────────────────────────────────────────────────
+        # celebrity_tour with no `regions` payload should push a
+        # `choose_regions` interaction whose responder is the player who
+        # invoked it. This is the queue that the UI must drain BEFORE
+        # finishRound clears it.
+        fresh_game(page, 2)
+        pendings = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                const fn = CardEffects.celebrity_tour;
+                if (!fn) return {error: "celebrity_tour effect not found"};
+                const result = fn(s, p1.id, 0, null);
+                return {
+                    result,
+                    pendingCount: (s.game.pendingInteractions || []).length,
+                    topType: (s.game.pendingInteractions || [])[0]?.type,
+                    responder: (s.game.pendingInteractions || [])[0]?.responding_player_id,
+                };
+            })()
+        """)
+        log("P.1 celebrity_tour pushed a choose_regions interaction",
+            pendings.get("pendingCount", 0) >= 1 and pendings.get("topType") == "choose_regions",
+            str(pendings))
+        log("P.2 The interaction's responder is the invoking player",
+            pendings.get("responder") == 1, str(pendings))
+
         browser.close()
 
     print("\n" + "=" * 60)

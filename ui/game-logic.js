@@ -104,6 +104,19 @@ async function placeWorker(actionName) {
                     addLog(`Played ${selectedCard.name} (free)`);
                 }
                 if (!selectedCard.is_effect) Game.cardsPlayedThisTurn.push(selectedCard);
+                // MP: broadcast the immediate-play so peers re-run it on
+                // their copy. Worker placements get broadcast through the
+                // placement path; this code path bypasses that, so it needs
+                // its own broadcast.
+                broadcastAction({
+                    kind: 'play_card_free',
+                    args: {
+                        playerId: Game.PLAYER_ID,
+                        cardId: selectedCard.id,
+                        freeSlot,
+                        payload: freePlayPayload,
+                    },
+                });
             }
             refreshData();
             return;
@@ -111,6 +124,29 @@ async function placeWorker(actionName) {
 
         targetCardId = selectedCard.id;
         workersToPlaceCount = effectiveCost;
+    }
+
+    // Recruit: prompt for which action the new Tech Worker will perform.
+    // The rulebook (p.7) lets recruited workers be placed on any action;
+    // for now we offer only the simple ones (no further sub-prompt needed).
+    if (slug === 'recruit') {
+        const recruitableLabels = {
+            buy_chips: "Buy Chips",
+            marketing: "Marketing",
+            raise_funds: "Raise Funds",
+            train_model: "Train Model",
+            increase_net_worth: "Increase Net Worth",
+        };
+        const labelList = Object.values(recruitableLabels);
+        const choice = await promptUserChoice(
+            "Recruit — New Worker's Action",
+            "The recruited Tech Worker can act this round. Pick its action:",
+            labelList
+        );
+        if (!choice) return;
+        const chosenSlug = Object.keys(recruitableLabels).find(k => recruitableLabels[k] === choice);
+        if (!chosenSlug) return;
+        targetSubAction = chosenSlug;
     }
 
     // Scale Presence: visual map picker
@@ -187,6 +223,22 @@ async function startStrategyExecution() {
 
     if (resolutionLog.length > 0) {
         await animateResolution(resolutionLog);
+    }
+
+    // Resolve any pending interactions (forced discards, region picks, etc.)
+    // BEFORE finishRound, which clears the queue. refreshData() kicks the
+    // existing fire-and-forget processPendingInteractions; we just poll
+    // until the queue drains. In MP, peers resolve their own player's
+    // interactions and broadcast back via 'resolve_interaction'.
+    let interactionWaits = 0;
+    while ((Game.localState.game.pendingInteractions || []).length > 0) {
+        refreshData();
+        await new Promise(r => setTimeout(r, 400));
+        interactionWaits += 1;
+        if (interactionWaits > 60) {
+            addLog("WARN: Pending interactions still unresolved after 24s; continuing.");
+            break;  // safety: don't hang forever
+        }
     }
 
     addLog("SYSTEM: Finalizing round...");

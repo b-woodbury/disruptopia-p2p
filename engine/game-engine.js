@@ -790,21 +790,28 @@ const Engine = {
 
         for (const player of this.getSortedPlayers(state)) {
             const resolved = new Set();
-            const allPlacements = state.workerPlacements
-                .filter(p => p.playerId === player.id)
-                .sort((a, b) => a.workerNumber - b.workerNumber);
-            const raiseFundsWorkers = allPlacements.filter(w => w.actionType === "raise_funds");
-            const trainModelWorkers = allPlacements.filter(w => w.actionType === "train_model");
 
             while (true) {
-                const p = allPlacements.find(wp => !resolved.has(wp.workerNumber));
+                // Re-read placements each iteration so workers spawned by
+                // Recruit during this player's turn execute their action
+                // this round (rulebook p.7).
+                const livePlacements = state.workerPlacements
+                    .filter(p => p.playerId === player.id)
+                    .sort((a, b) => a.workerNumber - b.workerNumber);
+                const p = livePlacements.find(wp => !resolved.has(wp.workerNumber));
                 if (!p) break;
 
+                // Re-collect group workers (raise_funds, train_model) from
+                // the LIVE list so a recruited worker added mid-resolution
+                // joins its group.
+                const remaining = livePlacements.filter(wp => !resolved.has(wp.workerNumber));
                 let groupWorkers, workerCount;
-                if (p.actionType === "raise_funds" && raiseFundsWorkers.length) {
-                    groupWorkers = raiseFundsWorkers; workerCount = raiseFundsWorkers.length;
-                } else if (p.actionType === "train_model" && trainModelWorkers.length) {
-                    groupWorkers = trainModelWorkers; workerCount = trainModelWorkers.length;
+                if (p.actionType === "raise_funds") {
+                    groupWorkers = remaining.filter(w => w.actionType === "raise_funds");
+                    workerCount = groupWorkers.length;
+                } else if (p.actionType === "train_model") {
+                    groupWorkers = remaining.filter(w => w.actionType === "train_model");
+                    workerCount = groupWorkers.length;
                 } else {
                     groupWorkers = [p]; workerCount = 1;
                 }

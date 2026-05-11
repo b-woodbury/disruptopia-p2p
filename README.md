@@ -56,11 +56,7 @@ undo, the round-execute trigger, and discards are broadcast as an action log
 through the relay; each client applies remote actions to its own copy. The
 engine is deterministic, so all clients converge. Polling interval is 2.5s.
 
-Limitations in v1:
-- Card play with target prompts (sabotage cards, region targets) and Recruit's
-  sub-action picker aren't synced yet — the prompt only fires for the local
-  player.
-- Pending interactions (Corporate Espionage, Patent Troll, etc.) aren't synced.
+Limitations:
 - No reconnection: if you reload mid-game your local IndexedDB still has the
   state, but you'll need to rejoin via the code to resume action sync.
 

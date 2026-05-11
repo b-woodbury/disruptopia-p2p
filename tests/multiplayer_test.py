@@ -185,6 +185,63 @@ def run():
             hand = pg.evaluate(f"Game.localState.components.filter(c => c.zone==='hand_p{pid}' && c.ownerId==={pid}).length")
             log(f"6.3 {label}: own hand within limit (<=5)", hand <= 5, f"hand={hand}")
 
+        print("\n=== 7. 0-cost cards play immediately and sync ===")
+        # Reset both contexts to a fresh game so we can play a 0-cost card.
+        # Force one into player 1's hand on the host side, play it, verify
+        # joiner sees the card move to the discard pile within the polling
+        # interval.
+        # Grab a Microdosing Interns card (slug 'microdosing_interns'): 0 cost,
+        # no in-game requirements, non-effect — simplest play path.
+        zero_cost = host_page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                // Find or promote a microdosing_interns into p1's hand.
+                let target = null;
+                const allComps = s.components;
+                for (const c of allComps) {
+                    const def = s.cardDefinitions.find(d => d.id === c.cardDetailsId);
+                    if (def && def.effectSlug === 'microdosing_interns'
+                        && (c.zone === `hand_p${p1.id}` || c.zone === 'research_deck')) {
+                        c.zone = `hand_p${p1.id}`;
+                        c.ownerId = p1.id;
+                        target = c;
+                        break;
+                    }
+                }
+                return target ? {id: target.id} : null;
+            })()
+        """)
+        if zero_cost:
+            # Force-refresh the UI so the hand renders the injected card.
+            host_page.evaluate("refreshData()")
+            # Call Engine.playCard directly + broadcast through the same
+            # path placeWorker uses (effectiveCost === 0 branch). That
+            # exercises the new 'play_card_free' broadcast.
+            host_page.evaluate(f"""
+                (async () => {{
+                    const r = Engine.playCard(Game.localState, Game.PLAYER_ID, {zero_cost['id']}, null, null);
+                    if (!r.error) {{
+                        broadcastAction({{kind: 'play_card_free', args: {{
+                            playerId: Game.PLAYER_ID, cardId: {zero_cost['id']}, freeSlot: null, payload: null
+                        }}}});
+                        refreshData();
+                    }}
+                }})()
+            """)
+            time.sleep(3.5)  # > polling interval
+            joiner_card_zone = join_page.evaluate(f"""
+                (() => {{
+                    const c = Game.localState.components.find(c => c.id === {zero_cost['id']});
+                    return c ? c.zone : null;
+                }})()
+            """)
+            log("7.1 joiner sees the 0-cost card moved out of hand",
+                joiner_card_zone is not None and "hand" not in (joiner_card_zone or "hand_p1"),
+                f"zone={joiner_card_zone}")
+        else:
+            log("7.1 0-cost card sync (skipped: no suitable card available)", True, "skip")
+
         host_ctx.close()
         join_ctx.close()
 

@@ -426,6 +426,25 @@ function applyRemoteAction(action) {
             Engine.discardCard(Game.localState, action.args.playerId, action.args.cardId);
         } else if (action.kind === 'replay_active_effect') {
             Engine.replayActiveEffect(Game.localState, action.args.playerId, action.args.cardId, null);
+        } else if (action.kind === 'play_card_free') {
+            // 0-cost cards (or Venture-Mogul-free cards) are played
+            // immediately on the active player's device. Re-apply on peers.
+            Engine.playCard(
+                Game.localState,
+                action.args.playerId,
+                action.args.cardId,
+                action.args.freeSlot,
+                action.args.payload,
+            );
+        } else if (action.kind === 'resolve_interaction') {
+            // Another player resolved a pending interaction; find the
+            // matching entry in our local state and apply the same payload.
+            const interactions = Game.localState.game.pendingInteractions || [];
+            const idx = interactions.findIndex(
+                i => i.responding_player_id === action.args.responder
+                  && i.type === action.args.type
+            );
+            if (idx >= 0) resolveInteraction(idx, action.args.payload);
         }
         refreshData();
     } finally {
@@ -463,10 +482,28 @@ async function localDiscardCard(playerId, cardId) {
 // ── PENDING INTERACTIONS ─────────────────────────────────
 async function processPendingInteractions() {
     while (Game.currentGameState.pending_interactions && Game.currentGameState.pending_interactions.length > 0) {
-        const interaction = Game.currentGameState.pending_interactions[0];
+        const interactions = Game.currentGameState.pending_interactions;
+        // In MP, only prompt for interactions whose responding_player_id is
+        // ours. Other clients will see the same interactions in their state
+        // and wait for our broadcasted resolution.
+        let idx = 0;
+        if (Game.mp.mode !== 'local' && Game.mp.connected) {
+            idx = interactions.findIndex(i => i.responding_player_id === Game.PLAYER_ID);
+            if (idx === -1) break;
+        }
+        const interaction = interactions[idx];
         const result = await promptInteraction(interaction);
         if (result) {
-            resolveInteraction(0, result);
+            resolveInteraction(idx, result);
+            // MP: broadcast the resolution so peers apply the same change.
+            broadcastAction({
+                kind: 'resolve_interaction',
+                args: {
+                    responder: interaction.responding_player_id,
+                    type: interaction.type,
+                    payload: result,
+                },
+            });
             refreshData();
         } else {
             break;
