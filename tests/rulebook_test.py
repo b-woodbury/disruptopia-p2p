@@ -228,6 +228,115 @@ def run():
         log("R.5 tile 3 transfers when another Billionaire's rep exceeds P1's (both below 10)",
             r == [2], str(r))
 
+        # ────────────────────────────────────────────────────────
+        print("\n=== TILE EFFECTS: previously inert (level 2/3) ===")
+        # ────────────────────────────────────────────────────────
+        # Streamlined Ops (play_card_worker_minus_1): every Play Card costs 1
+        # fewer worker. (The seed only picks 1 of 4 tiles per non-zero level
+        # in 2-player games, so we inject the tile directly to make the test
+        # deterministic.)
+        fresh_game(page, 2)
+        streamlined = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                for (const t of s.reputationTiles) t.ownerId = null;
+                s.reputationTiles.push({
+                    id: 88001, level: 2, name: "Streamlined Ops",
+                    effectCode: "play_card_worker_minus_1", ownerId: p1.id,
+                });
+                const mods = Engine.getPlayerModifiers(s, p1.id);
+                return {reduction: mods.card_cost_worker_reduction};
+            })()
+        """)
+        log("E.1 Streamlined Ops surfaces card_cost_worker_reduction=1",
+            streamlined.get("reduction") == 1, str(streamlined))
+
+        # Venture Mogul (free_hand_card): first hand-card play of the round
+        # is free; flag flips, second play pays normal cost.
+        fresh_game(page, 2)
+        venture = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                for (const t of s.reputationTiles) t.ownerId = null;
+                s.reputationTiles.push({
+                    id: 88002, level: 3, name: "Venture Mogul",
+                    effectCode: "free_hand_card", ownerId: p1.id,
+                });
+                // Find a 1-cost ACTION card (Effect cards need a target slot).
+                const hand = s.components.filter(c => c.zone === `hand_p${p1.id}` && c.ownerId === p1.id);
+                let target = null;
+                for (const h of hand) {
+                    const def = s.cardDefinitions.find(d => d.id === h.cardDetailsId);
+                    if (def && def.cost === 1 && !def.isEffect) { target = h; break; }
+                }
+                if (!target) {
+                    // None in hand — promote one. Pick any 1-cost non-effect
+                    // card from a deck and move it to p1's hand.
+                    const all = s.components.filter(c => c.zone && c.zone.endsWith("_deck"));
+                    for (const h of all) {
+                        const def = s.cardDefinitions.find(d => d.id === h.cardDetailsId);
+                        if (def && def.cost === 1 && !def.isEffect) {
+                            h.zone = `hand_p${p1.id}`;
+                            h.ownerId = p1.id;
+                            target = h;
+                            break;
+                        }
+                    }
+                }
+                if (!target) return {error: "no 1-cost action card available anywhere"};
+                // Sanity: with no workers placed on play_card, normal cost would fail.
+                // But Venture Mogul should make this work for free.
+                const before = {usedFlag: p1.tempFreeHandCardUsed, workersSpent: p1.workersSpentOnCards};
+                const result = Engine.playCard(s, p1.id, target.id, null, null);
+                const after = {usedFlag: p1.tempFreeHandCardUsed, workersSpent: p1.workersSpentOnCards};
+                return {before, after, result};
+            })()
+        """)
+        log("V.1 Venture Mogul plays a 1-cost card with no workers placed",
+            venture.get("result", {}).get("action") == "card_played", str(venture))
+        log("V.2 Venture Mogul flag flips to used after first play",
+            venture.get("after", {}).get("usedFlag") is True, str(venture.get("after")))
+        log("V.3 No workers were consumed (Venture Mogul made it free)",
+            venture.get("after", {}).get("workersSpent") == 0, str(venture.get("after")))
+
+        # Infinite Loop (free_active_effect): can replay an active-effect card
+        # for free once per round; flag flips; second call rejected.
+        fresh_game(page, 2)
+        infinite = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                for (const t of s.reputationTiles) t.ownerId = null;
+                s.reputationTiles.push({
+                    id: 88003, level: 3, name: "Infinite Loop",
+                    effectCode: "free_active_effect", ownerId: p1.id,
+                });
+                // Move an effect card from hand into slot 1 so we have something to replay.
+                const hand = s.components.filter(c => c.zone === `hand_p${p1.id}` && c.ownerId === p1.id);
+                let effectCard = null;
+                for (const h of hand) {
+                    const def = s.cardDefinitions.find(d => d.id === h.cardDetailsId);
+                    if (def && def.isEffect) { effectCard = h; break; }
+                }
+                if (!effectCard) return {error: "no effect card in hand"};
+                effectCard.zone = `active_effect_card_slot_1_p${p1.id}`;
+                // Try replay #1 — should succeed and consume the flag.
+                const r1 = Engine.replayActiveEffect(s, p1.id, effectCard.id, null);
+                const after1 = {usedFlag: p1.tempFreeActiveEffectUsed};
+                // Try replay #2 — should fail with "Already used".
+                const r2 = Engine.replayActiveEffect(s, p1.id, effectCard.id, null);
+                return {r1, r2, after1};
+            })()
+        """)
+        log("I.1 Infinite Loop replays an active effect once",
+            infinite.get("r1", {}).get("action") == "active_effect_replayed", str(infinite))
+        log("I.2 Infinite Loop flag flips after first replay",
+            infinite.get("after1", {}).get("usedFlag") is True, str(infinite))
+        log("I.3 Second replay in the same round rejected",
+            "Already used" in (infinite.get("r2", {}).get("error") or ""), str(infinite.get("r2")))
+
         # Test 5: 4-player game — top 2 reputations each get a tile.
         fresh_game(page, 4)
         r = page.evaluate("""

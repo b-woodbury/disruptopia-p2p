@@ -85,6 +85,8 @@ const Seed = {
                 tempWorkerLockCount: 0,
                 tempHandLimitIgnore: false,
                 tempP1Steal: false,
+                tempFreeHandCardUsed: false,    // Venture Mogul freebie (level-3 tile)
+                tempFreeActiveEffectUsed: false, // Infinite Loop freebie (level-3 tile)
                 ransomwareLocked: 0,
             });
         }

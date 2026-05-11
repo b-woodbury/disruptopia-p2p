@@ -23,7 +23,9 @@ const Engine = {
             income_offset: 0,
             draw_bonus: 0,
             worker_income_efficiency: false,
-            free_card_play: false,
+            card_cost_worker_reduction: 0,   // Streamlined Ops
+            free_hand_card: false,            // Venture Mogul
+            free_active_effect: false,        // Infinite Loop
             priority_p1: false,
         };
         const tiles = state.reputationTiles.filter(t => t.ownerId === playerId);
@@ -41,6 +43,9 @@ const Engine = {
             else if (code === "one_worker_income") mods.worker_income_efficiency = true;
             else if (code === "draw_extra_card") mods.draw_bonus += 1;
             else if (code === "perma_p1") mods.priority_p1 = true;
+            else if (code === "play_card_worker_minus_1") mods.card_cost_worker_reduction += 1;
+            else if (code === "free_hand_card") mods.free_hand_card = true;
+            else if (code === "free_active_effect") mods.free_active_effect = true;
         }
         return mods;
     },
@@ -612,11 +617,22 @@ const Engine = {
         if (player.ransomwareLocked >= 2) return {error: "Ransomware Lock: You cannot play cards this round."};
 
         const playCardWorkers = state.workerPlacements.filter(p => p.playerId === playerId && p.actionType === "play_card").length;
-        const cost = Math.max(0, def.cost - player.tempCardCostWorkerReduction + player.tempCardCostWorkerIncrease);
+        const mods = this.getPlayerModifiers(state, playerId);
+        // If Venture Mogul (free_hand_card) is available and this is a hand
+        // card (not a re-played effect from an active slot), spend it.
+        const isHandCard = card.zone === `hand_p${playerId}`;
+        let venturePopped = false;
+        let baseCost = def.cost;
+        if (isHandCard && mods.free_hand_card && !player.tempFreeHandCardUsed) {
+            baseCost = 0;
+            venturePopped = true;
+        }
+        const cost = Math.max(0, baseCost - player.tempCardCostWorkerReduction - mods.card_cost_worker_reduction + player.tempCardCostWorkerIncrease);
         if (cost > 0 && player.workersSpentOnCards + cost > playCardWorkers) {
             return {error: `Insufficient 'Play Card' workers. Need ${cost}.`};
         }
         player.workersSpentOnCards += cost;
+        if (venturePopped) player.tempFreeHandCardUsed = true;
 
         if (def.isEffect) {
             if (!targetSlot || targetSlot < 1 || targetSlot > 3) return {error: "Invalid slot for Effect Card."};
@@ -636,6 +652,35 @@ const Engine = {
             }
         }
         return {action: "card_played", new_zone: card.zone, message: "Card played."};
+    },
+
+    // Infinite Loop (free_active_effect tile): re-fire one of the player's
+    // active-effect cards for free, once per round. The card stays in its
+    // slot — only its effect is re-applied. Costs zero workers and the
+    // freebie flag is consumed.
+    replayActiveEffect(state, playerId, cardId, payload) {
+        const card = state.components.find(c => c.id === cardId);
+        if (!card || card.ownerId !== playerId) return {error: "Not owner."};
+        if (!card.zone || !card.zone.startsWith("active_effect_card_slot_")) {
+            return {error: "Card is not in an active effect slot."};
+        }
+        const player = this.getPlayer(state, playerId);
+        const mods = this.getPlayerModifiers(state, playerId);
+        if (!mods.free_active_effect) return {error: "Requires the Infinite Loop reputation tile."};
+        if (player.tempFreeActiveEffectUsed) return {error: "Already used Infinite Loop this round."};
+        if (player.ransomwareLocked >= 2) return {error: "Ransomware Lock: You cannot play cards this round."};
+
+        const def = state.cardDefinitions.find(d => d.id === card.cardDetailsId);
+        if (!def || !def.isEffect) return {error: "Card is not a re-playable effect card."};
+
+        player.tempFreeActiveEffectUsed = true;
+        const effectRes = this.applyCardEffect(state, playerId, cardId, payload);
+        if (effectRes && effectRes.error) {
+            // Roll back the flag if effect application failed.
+            player.tempFreeActiveEffectUsed = false;
+            return effectRes;
+        }
+        return {action: "active_effect_replayed", card_id: cardId};
     },
 
     applyCardEffect(state, playerId, cardId, payload) {
@@ -881,6 +926,8 @@ const Engine = {
             player.tempActionCostIncrease = 0;
             player.tempWorkerLockCount = 0;
             player.ransomwareLocked = 0;
+            player.tempFreeHandCardUsed = false;
+            player.tempFreeActiveEffectUsed = false;
         }
         state.game.pendingInteractions = [];
 

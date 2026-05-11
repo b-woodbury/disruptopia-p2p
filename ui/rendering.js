@@ -181,10 +181,17 @@ function renderPlayerHand(player) {
             });
         }
 
+        // Infinite Loop freebie: show a button when the tile is held and the
+        // freebie hasn't been used this round, and there's at least one
+        // active-effect card to replay.
+        const infiniteAvailable = player.free_active_effect_available && effects.length > 0;
+        const ilButton = infiniteAvailable
+            ? `<button id="btn-replay-active-effect" onclick="replayActiveEffectFree()" style="margin-top:6px; padding:6px 10px; font-size:0.65rem; font-weight:600; background:#7c3aed; color:#fff; border:none; border-radius:6px; cursor:pointer;">Replay Active Effect (Infinite Loop, free)</button>`
+            : '';
         if (cards.length > 0) {
-            effectsContainer.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start;">${cards.join('')}</div>`;
+            effectsContainer.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start;">${cards.join('')}</div>${ilButton}`;
         } else {
-            effectsContainer.innerHTML = `<div style="border: 2px dashed #d4c9b8; border-radius: 8px; padding: 16px 10px; text-align: center; color: #78716c; font-size: 0.6rem;">Effect cards appear here when played</div>`;
+            effectsContainer.innerHTML = `<div style="border: 2px dashed #d4c9b8; border-radius: 8px; padding: 16px 10px; text-align: center; color: #78716c; font-size: 0.6rem;">Effect cards appear here when played</div>${ilButton}`;
         }
     }
 

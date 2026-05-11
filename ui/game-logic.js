@@ -75,7 +75,11 @@ async function placeWorker(actionName) {
             targetSubAction = `region:${regionId}`;
         }
 
-        const effectiveCost = Math.max(0, selectedCard.cost - projectedReduction);
+        // Venture Mogul (free_hand_card): if the freebie hasn't been used
+        // this round, any hand card is free regardless of its cost. The
+        // engine's playCard will detect and consume the freebie.
+        const ventureFree = !!me.free_hand_card_available;
+        const effectiveCost = ventureFree ? 0 : Math.max(0, selectedCard.cost - projectedReduction);
 
         if (effectiveCost === 0) {
             let freeSlot = null;
@@ -231,7 +235,9 @@ function getProjectedState(player) {
 }
 
 function getProjectedCardCostReduction(player) {
-    return player.temp_card_cost_worker_reduction || 0;
+    // Combines the per-round temp reduction (from cards) with the permanent
+    // Streamlined Ops reputation-tile reduction (1 worker if held).
+    return (player.temp_card_cost_worker_reduction || 0) + (player.card_cost_worker_reduction || 0);
 }
 
 function getProjectedModelCostReduction(player) {
@@ -347,6 +353,43 @@ function isActionAvailable(actionSlug) {
     let key = actionSlug === 'train_new_model' ? 'train_model' : actionSlug;
     const r = Game.currentGameState.availability[key];
     return r ? r.available : true;
+}
+
+// ── INFINITE LOOP (free active-effect replay) ─────────────
+async function replayActiveEffectFree() {
+    refreshData();
+    const me = Game.currentGameState?.players.find(p => p.id === Game.PLAYER_ID);
+    if (!me) return;
+    if (!me.free_active_effect_available) {
+        showErrorModal("Infinite Loop", "Not available — either you don't hold the tile or you've already used it this round.");
+        return;
+    }
+    const effects = me.active_effects || [];
+    if (effects.length === 0) {
+        showErrorModal("Infinite Loop", "No active-effect cards to replay.");
+        return;
+    }
+
+    // Build minimal card objects for the picker. Cost is shown as 0 (free).
+    const cardsForPicker = effects.map(e => ({
+        id: e.id, name: e.name, cost: 0,
+        description: e.description, image_file: e.image_file, effect_slug: e.effect_slug,
+    }));
+    // maxWorkers=9999 so workerOk is always true; reduction=0; player=null
+    // so card requirements aren't re-checked (the card is already in play).
+    const chosen = await promptCardChoice(
+        `Replay Active Effect — Infinite Loop`,
+        `Pick one active effect to re-fire (free).`,
+        cardsForPicker, 9999, 0, null
+    );
+    if (!chosen) return;
+    const result = Engine.replayActiveEffect(Game.localState, Game.PLAYER_ID, chosen.id, null);
+    if (result.error) { showErrorModal("Replay Failed", result.error); }
+    else {
+        addLog(`Infinite Loop: replayed ${chosen.name}`);
+        broadcastAction({kind: 'replay_active_effect', args: {playerId: Game.PLAYER_ID, cardId: chosen.id}});
+    }
+    refreshData();
 }
 
 // ── UNDO ──────────────────────────────────────────────────

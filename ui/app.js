@@ -106,6 +106,10 @@ function buildStateView(state) {
             temp_hand_limit_ignore: p.tempHandLimitIgnore,
             ransomware_locked: p.ransomwareLocked,
             hand_limit: mods.hand_limit,
+            // Reputation-tile derived modifiers used by the play-card UI:
+            card_cost_worker_reduction: mods.card_cost_worker_reduction || 0,
+            free_hand_card_available: !!(mods.free_hand_card && !p.tempFreeHandCardUsed),
+            free_active_effect_available: !!(mods.free_active_effect && !p.tempFreeActiveEffectUsed),
             // Projected
             projected_funds: projected.corporate_funds,
             projected_reputation: projected.reputation,
@@ -420,6 +424,8 @@ function applyRemoteAction(action) {
             startStrategyExecution();
         } else if (action.kind === 'discard') {
             Engine.discardCard(Game.localState, action.args.playerId, action.args.cardId);
+        } else if (action.kind === 'replay_active_effect') {
+            Engine.replayActiveEffect(Game.localState, action.args.playerId, action.args.cardId, null);
         }
         refreshData();
     } finally {
