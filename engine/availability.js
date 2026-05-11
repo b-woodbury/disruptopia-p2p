@@ -62,6 +62,12 @@ const Availability = {
             scale_presence: (() => {
                 const wc = _checkWorker(); if (wc) return wc;
                 const currentCount = projectedState.presence_count || 0;
+                // Rulebook p.9: presence cap by Net Worth tier.
+                const nwCap = {0: 2, 1: 6, 2: 10}[projectedState.net_worth_level || 0] ?? 10;
+                if (currentCount >= nwCap) {
+                    const tier = ["Startup", "Millionaire", "Billionaire"][projectedState.net_worth_level || 0] || "current tier";
+                    return {available: false, reason: `${tier} cap (${nwCap})`};
+                }
                 if (currentCount >= 10) return {available: false, reason: "Max Presence Reached"};
                 let costIdx = currentCount - 1;
                 if (costIdx < 0) costIdx = 0;

@@ -9,7 +9,7 @@ const Engine = {
     // ==========================================
 
     clampRep(val) { return Math.max(-3, Math.min(10, val)); },
-    clampPower(val) { return Math.max(0, Math.min(40, val)); },
+    clampPower(val) { return Math.max(1, Math.min(30, val)); },  // rulebook p.14
 
     getPlayer(state, playerId) {
         return state.players.find(p => p.id === playerId);
@@ -53,26 +53,85 @@ const Engine = {
     },
 
     checkReputationTiles(state, playerId) {
-        const player = this.getPlayer(state, playerId);
-        // Level 0 (Penalty)
-        const currentPenalty = state.reputationTiles.find(t => t.ownerId === playerId && t.level === 0);
-        if (player.reputation === -3 && !currentPenalty) {
-            const available = state.reputationTiles.find(t => t.level === 0 && t.ownerId === null);
-            if (available) available.ownerId = playerId;
-        } else if (player.reputation > -3 && currentPenalty) {
-            currentPenalty.ownerId = null;
+        // Whichever player's stats changed, rebalance the WHOLE table — the
+        // rulebook (p.13) is symmetric: highest-rep player(s) hold the tiles,
+        // and a drop forces a transfer to anyone who now exceeds them.
+        this.rebalanceReputationTiles(state);
+    },
+
+    rebalanceReputationTiles(state) {
+        const players = state.players;
+        // How many tiles per level exist: 1 in 2-3p, 2 in 4-5p (rulebook p.13).
+        const tilesPerLevel = players.length <= 3 ? 1 : 2;
+        // Net Worth required to *hold* a tile.
+        const nwReq = {1: 0, 2: 1, 3: 2};
+        // Rep needed to claim a tile FRESH (i.e. when none are in circulation
+        // yet). Once any tile is in circulation, ownership tracks by relative
+        // rep only — see "sticky" rule for tiles 2 & 3 below.
+        const initialRepThresh = {1: 1, 2: 6, 3: 10};
+
+        // ── Level 0 (penalty): each player at rep -3 must hold one ───────
+        for (const player of players) {
+            const tile = state.reputationTiles.find(t => t.ownerId === player.id && t.level === 0);
+            if (player.reputation === -3) {
+                if (!tile) {
+                    const available = state.reputationTiles.find(t => t.level === 0 && t.ownerId === null);
+                    if (available) available.ownerId = player.id;
+                }
+            } else if (tile) {
+                tile.ownerId = null;
+            }
         }
-        // Levels 1-3
+
+        // ── Levels 1-3 ───────────────────────────────────────────────────
         for (const level of [1, 2, 3]) {
-            if (level === 2 && player.netWorthLevel < 1) continue;
-            if (level === 3 && player.netWorthLevel < 2) continue;
-            const minRep = {1: 1, 2: 6, 3: 10}[level];
-            if (player.reputation < minRep) continue;
             const tiles = state.reputationTiles.filter(t => t.level === level);
-            for (const tile of tiles) {
-                if (tile.ownerId === null) { tile.ownerId = playerId; break; }
-                const owner = this.getPlayer(state, tile.ownerId);
-                if (owner && player.reputation > owner.reputation) { tile.ownerId = playerId; break; }
+            if (tiles.length === 0) continue;
+
+            // Decide whether tiles at this level are "in circulation".
+            // Once any single tile has been claimed, the sticky rule applies
+            // forever (you don't drop below the rep threshold to lose it).
+            // Until then, *initial* claim requires rep ≥ initialRepThresh.
+            const anyOwned = tiles.some(t => t.ownerId !== null);
+            const anyCanFirstClaim = players.some(p =>
+                p.netWorthLevel >= nwReq[level] && p.reputation >= initialRepThresh[level]
+            );
+            const inCirculation = anyOwned || anyCanFirstClaim;
+
+            // Eligible holders: meet NW requirement. (Rep threshold doesn't
+            // gate holding once in circulation.)
+            let eligible = players.filter(p => p.netWorthLevel >= nwReq[level]);
+            if (!inCirculation) eligible = [];  // tile sits unclaimed
+
+            // Sort eligibility by rep desc; ties keep current holder, then
+            // lowest player id for determinism.
+            eligible.sort((a, b) => {
+                if (b.reputation !== a.reputation) return b.reputation - a.reputation;
+                const aHolds = tiles.some(t => t.ownerId === a.id);
+                const bHolds = tiles.some(t => t.ownerId === b.id);
+                if (aHolds && !bHolds) return -1;
+                if (!aHolds && bHolds) return 1;
+                return a.id - b.id;
+            });
+
+            const winners = eligible.slice(0, Math.min(tilesPerLevel, eligible.length));
+            const winnerIds = new Set(winners.map(p => p.id));
+
+            // Strip ownership from anyone no longer a winner.
+            for (const t of tiles) {
+                if (t.ownerId !== null && !winnerIds.has(t.ownerId)) {
+                    t.ownerId = null;
+                }
+            }
+            // Assign tiles to winners who don't already hold one.
+            const unowned = tiles.filter(t => t.ownerId === null);
+            let idx = 0;
+            for (const w of winners) {
+                const alreadyHolds = tiles.some(t => t.ownerId === w.id);
+                if (!alreadyHolds && idx < unowned.length) {
+                    unowned[idx].ownerId = w.id;
+                    idx += 1;
+                }
             }
         }
     },
@@ -260,6 +319,13 @@ const Engine = {
     },
 
     validateScalePresence(state, playerId, projectedState, targetRegion) {
+        // Rulebook p.9: presence cap by Net Worth tier — Startup 2, Millionaire 6, Billionaire 10.
+        const nwPresenceCap = {0: 2, 1: 6, 2: 10};
+        const cap = nwPresenceCap[projectedState.net_worth_level] ?? 10;
+        if (projectedState.presence_count >= cap) {
+            const tier = ["Startup", "Millionaire", "Billionaire"][projectedState.net_worth_level] || "current tier";
+            return {error: `${tier} can hold at most ${cap} regions. Increase Net Worth first.`};
+        }
         if (projectedState.presence_count >= 10) return {error: "Maximum presence reached."};
         let costIdx = projectedState.presence_count - 1;
         if (costIdx < 0) costIdx = 0;
@@ -431,6 +497,12 @@ const Engine = {
 
     executeScalePresence(state, playerId, targetRegion) {
         const player = this.getPlayer(state, playerId);
+        // Rulebook p.9 presence cap by Net Worth tier.
+        const nwCap = {0: 2, 1: 6, 2: 10}[player.netWorthLevel] ?? 10;
+        if (player.presenceCount >= nwCap) {
+            const tier = ["Startup", "Millionaire", "Billionaire"][player.netWorthLevel] || "tier";
+            return {error: `${tier} can hold at most ${nwCap} regions.`};
+        }
         if (player.presenceRegions.includes(targetRegion)) return {error: "Already present in this region."};
         let costIdx = player.presenceCount - 1;
         if (costIdx < 0) costIdx = 0;
@@ -812,12 +884,37 @@ const Engine = {
         }
         state.game.pendingInteractions = [];
 
+        // Game-end check: rulebook p.14 — when any player reaches Model
+        // Version 7, the round just played is the final round.
+        const reachedV7 = state.players.some(p => p.modelVersion >= 7);
+        if (reachedV7) {
+            // End-of-game siphon: all players move remaining Corporate Funds
+            // to Personal Funds before scoring (rulebook p.14).
+            for (const player of state.players) {
+                if (player.corporateFunds > 0) {
+                    player.personalFunds += player.corporateFunds;
+                    player.corporateFunds = 0;
+                }
+            }
+            state.game.gamePhase = "finished";
+            const leaderboard = this.calculateGameLeaderboard(state);
+            return {status: "game_over", final_round: state.game.currentRound, leaderboard};
+        }
+
         // Advance round
         state.game.currentRound += 1;
         const leaderboard = this.calculateGameLeaderboard(state);
         if (state.game.currentRound > state.game.maxRounds) {
+            // Safety cap: if nobody hit V7 within maxRounds (rare), end anyway
+            // with the same end-of-game siphon.
+            for (const player of state.players) {
+                if (player.corporateFunds > 0) {
+                    player.personalFunds += player.corporateFunds;
+                    player.corporateFunds = 0;
+                }
+            }
             state.game.gamePhase = "finished";
-            return {status: "game_over", final_round: state.game.currentRound - 1, leaderboard};
+            return {status: "game_over", final_round: state.game.currentRound - 1, leaderboard: this.calculateGameLeaderboard(state)};
         }
 
         // Apply round-start penalty tiles (only owners of these tiles, i.e.
@@ -875,9 +972,39 @@ const Engine = {
             totalVp += fundBonuses[p.id] || 0;
             return {
                 player_id: p.id, user_name: p.userName, total_vp: totalVp,
+                // Carry the tie-break fields so the sort can reach them.
+                _model: p.modelVersion, _power: p.power,
+                _personal: p.personalFunds, _reputation: p.reputation,
                 breakdown: {race_bonuses: p.vp, power_vp: Math.floor(p.power / 5), model_vp: p.modelVersion, presence_vp: p.presenceCount, funds_bonus: fundBonuses[p.id] || 0},
             };
         });
-        return leaderboard.sort((a, b) => b.total_vp - a.total_vp);
+        // Rulebook p.14 tie-break order: VP → model → power → personal funds
+        // → reputation. Any remaining tie is a "shared failure" — we mark
+        // those entries with `shared_failure` so the UI can surface it.
+        leaderboard.sort((a, b) =>
+            b.total_vp - a.total_vp
+            || b._model - a._model
+            || b._power - a._power
+            || b._personal - a._personal
+            || b._reputation - a._reputation
+        );
+        // Mark any group that ties through all tie-breaks (true co-leaders).
+        for (let i = 0; i < leaderboard.length; i++) {
+            for (let j = i + 1; j < leaderboard.length; j++) {
+                if (leaderboard[i].total_vp === leaderboard[j].total_vp
+                    && leaderboard[i]._model === leaderboard[j]._model
+                    && leaderboard[i]._power === leaderboard[j]._power
+                    && leaderboard[i]._personal === leaderboard[j]._personal
+                    && leaderboard[i]._reputation === leaderboard[j]._reputation) {
+                    leaderboard[i].shared_failure = true;
+                    leaderboard[j].shared_failure = true;
+                }
+            }
+        }
+        // Strip the tie-break helpers so the public shape stays compatible.
+        for (const row of leaderboard) {
+            delete row._model; delete row._power; delete row._personal; delete row._reputation;
+        }
+        return leaderboard;
     },
 };

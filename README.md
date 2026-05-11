@@ -66,7 +66,7 @@ Limitations in v1:
 
 ## Tests
 
-Three Playwright suites:
+Four Playwright suites (207 assertions total):
 
 ```bash
 pip install playwright
@@ -80,9 +80,12 @@ python tests/exploration_test.py
 
 # Two-browser-context multiplayer (21 tests)
 python tests/multiplayer_test.py
+
+# Rulebook-compliance checks (21 tests)
+python tests/rulebook_test.py
 ```
 
-All three expect the server at <http://localhost:7869/>.
+All four expect the server at <http://localhost:7869/>.
 
 ## License
 
