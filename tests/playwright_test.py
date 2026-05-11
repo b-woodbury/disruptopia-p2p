@@ -490,6 +490,65 @@ def run_tests():
                    all(v >= 1 for v in vp_values), str(vp_values))
 
         # ════════════════════════════════════════════
+        # TEST GROUP 10.5: PENALTY REPUTATION TILES
+        # Regression for tiles defined in config but never executed:
+        # Power Drain (lose_2_power_round) and Information Leak (discard_per_round).
+        # ════════════════════════════════════════════
+        print("\n=== GROUP 10.5: Penalty Reputation Tiles ===")
+
+        # Force Alice (id=1) to own a Power Drain tile at level 0, set her
+        # power to 5, and put a non-intern card in her hand. Then call
+        # finishRound and check that power dropped by 2 and one card moved
+        # from hand to discard.
+        setup = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const alice = s.players[0];
+                alice.power = 5;
+                alice.reputation = -3;
+                // Wipe ALL tile ownership so only the synthetic tiles below
+                // affect Alice's modifiers (otherwise Rapid Intel etc. would
+                // skew the draw count).
+                for (const t of s.reputationTiles) t.ownerId = null;
+                // Inject two synthetic level-0 tiles owned by Alice
+                s.reputationTiles.push({
+                    id: 99001, level: 0, name: "Power Drain",
+                    effectCode: "lose_2_power_round", ownerId: alice.id,
+                });
+                s.reputationTiles.push({
+                    id: 99002, level: 0, name: "Information Leak",
+                    effectCode: "discard_per_round", ownerId: alice.id,
+                });
+                // Hand pre-check: count Alice's non-intern hand cards
+                const handBefore = s.components.filter(
+                    c => c.zone === `hand_p${alice.id}` && c.ownerId === alice.id
+                ).length;
+                const result = Engine.finishRound(s);
+                const handAfter = s.components.filter(
+                    c => c.zone === `hand_p${alice.id}` && c.ownerId === alice.id
+                ).length;
+                return {
+                    aliceFinalPower: alice.power,
+                    handBefore, handAfter,
+                    status: result.status,
+                };
+            })()
+        """)
+        log_result(
+            "T10.5.1 Power Drain reduced Alice's power by 2",
+            setup["aliceFinalPower"] == 3,
+            f"power={setup['aliceFinalPower']} (started 5)",
+        )
+        # Information Leak discards 1 from old hand, then round-start draws 3
+        # new cards. Net effect: hand should be (before - 1 + 3).
+        expected_hand = setup["handBefore"] - 1 + 3
+        log_result(
+            "T10.5.2 Information Leak discarded one card before round-start draw",
+            setup["handAfter"] == expected_hand,
+            f"before={setup['handBefore']} after={setup['handAfter']} expected={expected_hand}",
+        )
+
+        # ════════════════════════════════════════════
         # TEST GROUP 11: RESET
         # ════════════════════════════════════════════
         print("\n=== GROUP 11: Reset ===")

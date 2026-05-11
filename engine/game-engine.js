@@ -820,6 +820,32 @@ const Engine = {
             return {status: "game_over", final_round: state.game.currentRound - 1, leaderboard};
         }
 
+        // Apply round-start penalty tiles (only owners of these tiles, i.e.
+        // players currently at -3 reputation, are affected). Other penalty
+        // effects — model_cost_plus_1, compute_cost_plus_3, hand_limit_3 —
+        // are read via getPlayerModifiers and don't need to fire here.
+        for (const player of state.players) {
+            const tiles = state.reputationTiles.filter(t => t.ownerId === player.id);
+            for (const tile of tiles) {
+                if (tile.effectCode === "lose_2_power_round") {
+                    player.power = this.clampPower(player.power - 2);
+                    this.updatePlayerIncome(state, player);
+                } else if (tile.effectCode === "discard_per_round") {
+                    // Auto-discard the first non-protected card in hand.
+                    const hand = state.components.filter(
+                        c => c.zone === `hand_p${player.id}` && c.ownerId === player.id
+                    );
+                    for (const c of hand) {
+                        const def = state.cardDefinitions.find(d => d.id === c.cardDetailsId);
+                        if (def && def.effectSlug === "intern_program") continue;
+                        c.zone = `${c.subType}_discard`;
+                        c.ownerId = null;
+                        break;
+                    }
+                }
+            }
+        }
+
         // Draw cards for next round
         state.game.gamePhase = "playing";
         for (const player of state.players) {
