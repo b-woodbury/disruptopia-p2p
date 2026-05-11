@@ -452,6 +452,134 @@ def run():
             multi.get("r", {}).get("upgrades_applied") == 2, str(multi))
 
         # ────────────────────────────────────────────────────────
+        print("\n=== Token returns to most expensive empty slot (rulebook p.14) ===")
+        # ────────────────────────────────────────────────────────
+        # Scenario: recruit slots 4 & 5, lose 2, re-buy 2. Per rulebook
+        # p.14, lost tokens refill the *most-expensive empty board slot*,
+        # so the board ends up fully refilled and the next recruits take
+        # slots 4 ($2) then 5 ($3) — the same cost-pattern as starting
+        # from scratch. (This is mathematically equivalent to the prior
+        # "next-sequential" formula; the test is here to LOCK IN that
+        # the engine now models the board explicitly and the board-slot
+        # tracking stays in sync with totalWorkers across loss/refill.)
+        fresh_game(page, 2)
+        slots = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.corporateFunds = 99;
+                p1.netWorthLevel = 2;  // unblock slot 5+ recruits
+                // Recruit slot 4 ($2) then slot 5 ($3) — total $5.
+                Engine.executeRecruitWorker(s, p1.id, "marketing", null, null);
+                Engine.executeRecruitWorker(s, p1.id, "marketing", null, null);
+                const boardAfterRecruit = [...p1.workerBoardSlots];
+                const fundsAfterRecruit = p1.corporateFunds;
+                // Lose 2 workers — rulebook: each lost token refills most expensive empty.
+                Engine.returnWorkerToBoard(p1);
+                const boardAfterLoss1 = [...p1.workerBoardSlots];
+                Engine.returnWorkerToBoard(p1);
+                const boardAfterLoss2 = [...p1.workerBoardSlots];
+                // Re-buy 2 workers.
+                Engine.executeRecruitWorker(s, p1.id, "marketing", null, null);
+                const fundsAfterFirstRebuy = p1.corporateFunds;
+                Engine.executeRecruitWorker(s, p1.id, "marketing", null, null);
+                const fundsAfterSecondRebuy = p1.corporateFunds;
+                return {boardAfterRecruit, boardAfterLoss1, boardAfterLoss2, fundsAfterRecruit, fundsAfterFirstRebuy, fundsAfterSecondRebuy};
+            })()
+        """)
+        log("Slot.1 first loss returns token to slot 5 (most expensive empty)",
+            5 in slots["boardAfterLoss1"] and 4 not in slots["boardAfterLoss1"], str(slots["boardAfterLoss1"]))
+        log("Slot.2 second loss fills slot 4 — board is now full again",
+            sorted(slots["boardAfterLoss2"]) == [4, 5, 6, 7, 8], str(slots["boardAfterLoss2"]))
+        log("Slot.3 first re-buy charges slot 4 ($2) — lowest on the refilled board",
+            slots["fundsAfterRecruit"] - slots["fundsAfterFirstRebuy"] == 2, str(slots))
+        log("Slot.4 second re-buy charges slot 5 ($3)",
+            slots["fundsAfterFirstRebuy"] - slots["fundsAfterSecondRebuy"] == 3, str(slots))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Consecutive Tech Workers for Train Model (rulebook p.5/p.8) ===")
+        # ────────────────────────────────────────────────────────
+        # If workers 1 and 3 are on Train Model with worker 2 on Marketing,
+        # they should NOT form a 2-worker group. The two TM workers fire
+        # as two separate 1-worker groups.
+        fresh_game(page, 2)
+        consec = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.modelVersion = 0;
+                p1.computeLevel = 7;  // doesn't gate
+                p1.netWorthLevel = 2;
+                p1.corporateFunds = 99;
+                // Place workers 1, 3 on Train Model; worker 2 on Marketing.
+                Engine.placeWorker(s, p1.id, 1, "train_model", null, null, null);
+                Engine.placeWorker(s, p1.id, 2, "marketing", null, null, null);
+                Engine.placeWorker(s, p1.id, 3, "train_model", null, null, null);
+                const r = Engine.resolveEntireRound(s);
+                // Each TM with 1 worker upgrades once. So V0→V1, then V1→V2.
+                // (V2→V3 would need 2 consecutive workers; we don't have any.)
+                return {finalVersion: p1.modelVersion, log: (r.resolution_log||[]).map(e => e.action_type||e.action||e)};
+            })()
+        """)
+        log("CW.1 workers 1+3 on Train Model (gap) → 2 separate single-worker upgrades, V0→V2",
+            consec.get("finalVersion") == 2, str(consec))
+
+        # Contrast: workers 1+2 on Train Model (consecutive) with worker 3
+        # elsewhere → 1 group of 2, multi-upgrade V0→V2 in ONE execution.
+        fresh_game(page, 2)
+        contig = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.modelVersion = 0;
+                p1.computeLevel = 7;
+                p1.netWorthLevel = 2;
+                Engine.placeWorker(s, p1.id, 1, "train_model", null, null, null);
+                Engine.placeWorker(s, p1.id, 2, "train_model", null, null, null);
+                Engine.placeWorker(s, p1.id, 3, "marketing", null, null, null);
+                const r = Engine.resolveEntireRound(s);
+                return {finalVersion: p1.modelVersion};
+            })()
+        """)
+        log("CW.2 consecutive workers 1+2 on Train Model multi-upgrade V0→V2",
+            contig.get("finalVersion") == 2, str(contig))
+
+        # ────────────────────────────────────────────────────────
+        print("\n=== Presence: lost token returns to most expensive empty slot ===")
+        # ────────────────────────────────────────────────────────
+        fresh_game(page, 2)
+        pslots = page.evaluate("""
+            (() => {
+                const s = Game.localState;
+                const p1 = s.players[0];
+                p1.netWorthLevel = 2;  // unblock Millionaire/Billionaire cap
+                p1.corporateFunds = 99;
+                // Scale to 3 presence (cost $1, $3 = $4 total).
+                // Find adjacent regions to p1's starting region 1.
+                Engine.executeScalePresence(s, p1.id, 2);  // adj to 1
+                Engine.executeScalePresence(s, p1.id, 7);  // adj to 2
+                const fundsBefore = p1.corporateFunds;
+                // Lose 2 presence (squeeze x2 via helper).
+                Engine.returnPresenceToBoard(p1, 7);
+                Engine.returnPresenceToBoard(p1, 2);
+                // Re-scale into adjacent regions twice.
+                Engine.executeScalePresence(s, p1.id, 2);
+                const fundsAfterFirst = p1.corporateFunds;
+                Engine.executeScalePresence(s, p1.id, 7);
+                const fundsAfterSecond = p1.corporateFunds;
+                return {fundsBefore, fundsAfterFirst, fundsAfterSecond};
+            })()
+        """)
+        # Lost presence tokens refill the most-expensive empty board slot.
+        # After 2 scales + 2 losses the board is back to full, and the
+        # next two re-scales charge $1 (slot 2) then $3 (slot 3) — same
+        # as starting fresh.
+        log("PSlot.1 first presence re-buy charges $1 (slot 2, lowest on refilled board)",
+            pslots["fundsBefore"] - pslots["fundsAfterFirst"] == 1, str(pslots))
+        log("PSlot.2 second presence re-buy charges $3 (slot 3)",
+            pslots["fundsAfterFirst"] - pslots["fundsAfterSecond"] == 3, str(pslots))
+
+        # ────────────────────────────────────────────────────────
         print("\n=== RECRUIT sub-action: rulebook p.7-8 ===")
         # ────────────────────────────────────────────────────────
         # Rulebook: "The new Tech Worker is placed on any action of your

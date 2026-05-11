@@ -162,6 +162,11 @@ function buildStateView(state) {
             card_cost_worker_reduction: mods.card_cost_worker_reduction || 0,
             free_hand_card_available: !!(mods.free_hand_card && !p.tempFreeHandCardUsed),
             free_active_effect_available: !!(mods.free_active_effect && !p.tempFreeActiveEffectUsed),
+            // Board-slot cost previews (rulebook p.14 most-expensive-empty-slot).
+            next_worker_cost: Engine.nextWorkerCost(p),
+            next_worker_slot: Engine.nextWorkerSlot(p),
+            next_presence_cost: Engine.nextPresenceCost(p),
+            next_presence_slot: Engine.nextPresenceSlot(p),
             // Projected
             projected_funds: projected.corporate_funds,
             projected_reputation: projected.reputation,
@@ -590,8 +595,9 @@ function resolveInteraction(index, payload) {
     } else if (itype === "choose_squeeze_region") {
         const target = Engine.getPlayer(Game.localState, interaction.target_player_id);
         if (target) {
-            const idx = target.presenceRegions.indexOf(parseInt(payload.region_id));
-            if (idx >= 0) { target.presenceRegions.splice(idx, 1); target.presenceCount -= 1; }
+            // Use the slot-aware helper so the freed token sits on the
+            // most expensive empty board slot for re-purchase (rulebook p.14).
+            Engine.returnPresenceToBoard(target, parseInt(payload.region_id));
             if (target.subsidyTokens > 0) target.subsidyTokens -= 1;
             Engine.updatePlayerIncome(Game.localState, target);
         }

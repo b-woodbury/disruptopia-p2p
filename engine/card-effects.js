@@ -220,7 +220,8 @@ const CardEffects = {
         if (player.totalWorkers >= 8) return { error: "Max workers reached." };
         const nwErr = _checkWorkerNwReq(player);
         if (nwErr) return nwErr;
-        player.totalWorkers += 1;
+        // Free worker — but still track the board slot (rulebook p.14).
+        Engine.recruitWorkerFromBoard(player);
         return { success: true, message: "Whitepaper: +1 Worker (Available Now)." };
     },
 
@@ -271,28 +272,34 @@ const CardEffects = {
             return { error: `Cannot recruit 2 workers. Max is 8, you have ${player.totalWorkers}.` };
         }
 
-        const next1 = player.totalWorkers + 1;
-        const next2 = player.totalWorkers + 2;
+        // Determine the two slots this would consume, in board order.
+        // Rulebook p.14: lowest-numbered tokens come off the board first.
+        Engine._ensureSlotState(player);
+        const slotsAvailable = [...player.workerBoardSlots].sort((a, b) => a - b).slice(0, 2);
+        if (slotsAvailable.length < 2) {
+            return { error: "Not enough worker tokens available on the board." };
+        }
 
-        // Check NW for both new workers
-        for (const nextNum of [next1, next2]) {
-            const tier = Config.RECRUIT_COSTS[nextNum] || Config.RECRUIT_COSTS[4];
+        for (const slot of slotsAvailable) {
+            const tier = Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
             if (player.netWorthLevel < tier.min_nw) {
                 const nwNames = { 0: "Startup", 1: "Millionaire", 2: "Billionaire" };
-                return { error: `Must be ${nwNames[tier.min_nw]} for worker #${nextNum}.` };
+                return { error: `Must be ${nwNames[tier.min_nw]} for worker #${slot}.` };
             }
         }
 
-        // Pay only the more expensive (always the higher worker number)
-        const costTier = Config.RECRUIT_COSTS[next2] || Config.RECRUIT_COSTS[4];
-        const costCash = costTier.money;
-
+        // Pay only the more expensive of the two slots (card text).
+        const costCash = Math.max(
+            (Config.RECRUIT_COSTS[slotsAvailable[0]] || {money: 0}).money,
+            (Config.RECRUIT_COSTS[slotsAvailable[1]] || {money: 0}).money,
+        );
         if (player.corporateFunds < costCash) {
             return { error: `Insufficient funds: Need $${costCash}.` };
         }
 
         player.corporateFunds -= costCash;
-        player.totalWorkers += 2;
+        Engine.recruitWorkerFromBoard(player);
+        Engine.recruitWorkerFromBoard(player);
         return { success: true, message: `Pipeline Built: +2 Workers for $${costCash}.` };
     },
 
@@ -308,7 +315,7 @@ const CardEffects = {
         if (player.totalWorkers >= 8) return { error: "Max workers reached." };
         const nwErr = _checkWorkerNwReq(player);
         if (nwErr) return nwErr;
-        player.totalWorkers += 1;
+        Engine.recruitWorkerFromBoard(player);
         return { success: true, message: "Spaghetti Code: +1 Worker (Free)." };
     },
 
@@ -351,7 +358,7 @@ const CardEffects = {
             }
         }
         player.computeLevel = Math.min(7, player.computeLevel + 2);
-        player.totalWorkers -= 1;
+        Engine.returnWorkerToBoard(player);
         return { success: true, message: "Burn Out: +2 Compute, -1 Worker." };
     },
 
@@ -379,10 +386,10 @@ const CardEffects = {
         if (player.totalWorkers >= 8) return { error: "Max workers reached." };
         const nwErr = _checkWorkerNwReq(player);
         if (nwErr) return nwErr;
-        player.totalWorkers += 1;
+        const recruited = Engine.recruitWorkerFromBoard(player);
 
-        // Block usage this round with dummy placement
-        const newWorkerNum = player.totalWorkers;
+        // Block usage this round with dummy placement on the new slot.
+        const newWorkerNum = recruited ? recruited.slot : player.totalWorkers;
         state.workerPlacements.push({
             playerId: playerId,
             workerNumber: newWorkerNum,
@@ -485,19 +492,16 @@ const CardEffects = {
                 expanded.add(regionId);
             }
 
-            // Calculate costs - pay only the more expensive
-            const currentCount = player.presenceCount;
-            const costs = [];
-            for (let i = 0; i < regions.length; i++) {
-                let idx = (currentCount + i) - 1;
-                if (idx < 0) idx = 0;
-                if (idx >= Config.PRESENCE_COSTS.length) {
-                    costs.push(Config.PRESENCE_COSTS[Config.PRESENCE_COSTS.length - 1]);
-                } else {
-                    costs.push(Config.PRESENCE_COSTS[idx]);
-                }
+            // Calculate costs from the next N presence board slots, then
+            // pay only the more expensive (per card text). Rulebook p.14
+            // applies — slots come off the board lowest-first.
+            Engine._ensureSlotState(player);
+            const newRegions = regions.filter(r => !player.presenceRegions.includes(r));
+            const slotsAvailable = [...player.presenceBoardSlots].sort((a, b) => a - b).slice(0, newRegions.length);
+            if (slotsAvailable.length < newRegions.length) {
+                return { error: "Not enough presence tokens available on the board." };
             }
-
+            const costs = slotsAvailable.map(slot => Config.PRESENCE_COSTS[slot - 2]);
             const totalCost = costs.length ? Math.max(...costs) : 0;
             if (player.corporateFunds < totalCost) {
                 return { error: `Insufficient funds. Need $${totalCost}.` };
@@ -505,10 +509,8 @@ const CardEffects = {
 
             player.corporateFunds -= totalCost;
 
-            for (const regionId of regions) {
-                if (player.presenceRegions.includes(regionId)) continue;
-                player.presenceRegions.push(regionId);
-                player.presenceCount += 1;
+            for (const regionId of newRegions) {
+                Engine.scalePresenceFromBoard(player, regionId);
                 const rs = state.regionStates.find(r => r.regionId === regionId);
                 if (rs && rs.subsidyTokensRemaining > 0) {
                     rs.subsidyTokensRemaining -= 1;
@@ -630,7 +632,7 @@ const CardEffects = {
         // Rulebook p.14: minimum 3 Tech Workers.
         if (player.totalWorkers <= 3) return { error: "Cannot run Layoffs — minimum 3 Tech Workers required." };
         const gain = player.totalWorkers * 3; // Calculated BEFORE losing worker
-        player.totalWorkers -= 1;
+        Engine.returnWorkerToBoard(player);
         player.corporateFunds += gain;
         return { success: true, message: `Layoffs executed. +$${gain}, -1 Worker.` };
     },
@@ -889,7 +891,7 @@ const CardEffects = {
         if (player.totalWorkers >= 8) return { error: "You already have max workers." };
         const nwErr = _checkWorkerNwReq(player);
         if (nwErr) return nwErr;
-        player.totalWorkers += 1;
+        Engine.recruitWorkerFromBoard(player);
         _addReputation(state, player, -1);
         const card = state.components.find(c => c.id === cardId);
         if (card) {
@@ -954,11 +956,9 @@ const CardEffects = {
             if (!shared.includes(regionToRemove)) {
                 return { error: `Region ${regionToRemove} is not a shared region.` };
             }
-            const idx = target.presenceRegions.indexOf(regionToRemove);
-            if (idx !== -1) {
-                target.presenceRegions.splice(idx, 1);
-                target.presenceCount -= 1;
-            }
+            // Return the presence token to the most expensive empty
+            // slot on the target's board (rulebook p.14).
+            Engine.returnPresenceToBoard(target, regionToRemove);
             if (target.subsidyTokens > 0) {
                 target.subsidyTokens -= 1;
             }

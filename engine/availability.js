@@ -34,9 +34,12 @@ const Availability = {
             })(),
             recruit: (() => {
                 const wc = _checkWorker(); if (wc) return wc;
-                const nextNum = (projectedState.total_workers || 3) + 1;
-                if (nextNum > 8) return {available: false, reason: "Max Workers Reached"};
-                const tier = Config.RECRUIT_COSTS[nextNum] || Config.RECRUIT_COSTS[4];
+                // Cost from the projected board slots (rulebook p.14
+                // most-expensive-empty-slot model).
+                const slots = projectedState.worker_board_slots;
+                if (!slots || slots.length === 0) return {available: false, reason: "Max Workers Reached"};
+                const nextSlot = Math.min(...slots);
+                const tier = Config.RECRUIT_COSTS[nextSlot] || Config.RECRUIT_COSTS[4];
                 if (_funds() < tier.money) return {available: false, reason: `Insufficient Funds ($${tier.money})`};
                 if (_nw() < tier.min_nw) return {available: false, reason: "Net Worth Too Low"};
                 return {available: true};
@@ -69,10 +72,11 @@ const Availability = {
                     return {available: false, reason: `${tier} cap (${nwCap})`};
                 }
                 if (currentCount >= 10) return {available: false, reason: "Max Presence Reached"};
-                let costIdx = currentCount - 1;
-                if (costIdx < 0) costIdx = 0;
-                if (costIdx >= Config.PRESENCE_COSTS.length) return {available: false, reason: "Max Expansion Limit"};
-                const cost = Config.PRESENCE_COSTS[costIdx];
+                // Cost from the projected presence board (rulebook p.14).
+                const slots = projectedState.presence_board_slots;
+                if (!slots || slots.length === 0) return {available: false, reason: "Max Expansion Limit"};
+                const nextSlot = Math.min(...slots);
+                const cost = Config.PRESENCE_COSTS[nextSlot - 2];
                 if (_funds() < cost) return {available: false, reason: `Insufficient Funds ($${cost})`};
                 const ownedIds = new Set(projectedState.presence_regions || []);
                 const neighbors = new Set();

@@ -15,6 +15,123 @@ const Engine = {
         return state.players.find(p => p.id === playerId);
     },
 
+    // ── BOARD-SLOT HELPERS (rulebook p.14) ─────────────────────────
+    // Workers occupy slots 4-8 on the Net Worth Tracking Board; presence
+    // occupies slots 2-10. Recruiting takes the lowest-numbered token
+    // currently on the board (sequential); losing returns a token to the
+    // most expensive empty board slot. After multiple lose/refill cycles
+    // these two rules together produce non-sequential cost charges that
+    // the naive "next slot = count + 1" formula gets wrong.
+
+    _ensureSlotState(player) {
+        // Legacy save / older saves may not have these fields. Fill in
+        // consistently with the player's current count (assume nothing has
+        // been lost — best we can do without history).
+        if (!player.workerBoardSlots) {
+            const filled = Math.min(8, Math.max(3, player.totalWorkers || 3));
+            player.workerBoardSlots = [];
+            for (let s = filled + 1; s <= 8; s++) player.workerBoardSlots.push(s);
+        }
+        if (!player.presenceBoardSlots) {
+            const filled = Math.min(10, Math.max(1, player.presenceCount || 1));
+            player.presenceBoardSlots = [];
+            for (let s = filled + 1; s <= 10; s++) player.presenceBoardSlots.push(s);
+        }
+    },
+
+    nextWorkerSlot(player) {
+        this._ensureSlotState(player);
+        if (player.workerBoardSlots.length === 0) return null;
+        return Math.min(...player.workerBoardSlots);
+    },
+
+    nextWorkerCost(player) {
+        const slot = this.nextWorkerSlot(player);
+        if (slot == null) return null;
+        const tier = Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
+        return tier ? tier.money : 0;
+    },
+
+    nextWorkerTier(player) {
+        const slot = this.nextWorkerSlot(player);
+        if (slot == null) return null;
+        return Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
+    },
+
+    // Mutates: removes lowest-numbered token from the board and bumps
+    // totalWorkers. Returns {slot, cost} on success or null if no room.
+    recruitWorkerFromBoard(player) {
+        const slot = this.nextWorkerSlot(player);
+        if (slot == null) return null;
+        player.workerBoardSlots = player.workerBoardSlots.filter(s => s !== slot);
+        player.totalWorkers += 1;
+        const tier = Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
+        return {slot, cost: tier ? tier.money : 0};
+    },
+
+    // Mutates: returns the player's highest-numbered owned worker token to
+    // the most expensive empty board slot. Respects rulebook p.14 min 3.
+    // Returns the slot that was filled, or null if no loss occurred.
+    returnWorkerToBoard(player) {
+        this._ensureSlotState(player);
+        if (player.totalWorkers <= 3) return null;
+        const onBoard = new Set(player.workerBoardSlots);
+        for (let s = 8; s >= 4; s--) {
+            if (!onBoard.has(s)) {
+                player.workerBoardSlots.push(s);
+                player.totalWorkers -= 1;
+                return s;
+            }
+        }
+        return null;
+    },
+
+    nextPresenceSlot(player) {
+        this._ensureSlotState(player);
+        if (player.presenceBoardSlots.length === 0) return null;
+        return Math.min(...player.presenceBoardSlots);
+    },
+
+    nextPresenceCost(player) {
+        const slot = this.nextPresenceSlot(player);
+        if (slot == null) return null;
+        return Config.PRESENCE_COSTS[slot - 2];
+    },
+
+    // Mutates: removes lowest-numbered token from the board and adds the
+    // region to the player's presenceRegions. Returns {slot, cost} or null.
+    scalePresenceFromBoard(player, regionId) {
+        const slot = this.nextPresenceSlot(player);
+        if (slot == null) return null;
+        player.presenceBoardSlots = player.presenceBoardSlots.filter(s => s !== slot);
+        player.presenceCount += 1;
+        if (regionId != null && !player.presenceRegions.includes(regionId)) {
+            player.presenceRegions.push(regionId);
+        }
+        return {slot, cost: Config.PRESENCE_COSTS[slot - 2]};
+    },
+
+    // Mutates: returns a presence token to the most expensive empty board
+    // slot. If regionId given, also removes it from the player's
+    // presenceRegions. Returns the slot that was filled, or null.
+    returnPresenceToBoard(player, regionId) {
+        this._ensureSlotState(player);
+        if (player.presenceCount <= 0) return null;
+        const onBoard = new Set(player.presenceBoardSlots);
+        for (let s = 10; s >= 2; s--) {
+            if (!onBoard.has(s)) {
+                player.presenceBoardSlots.push(s);
+                player.presenceCount -= 1;
+                if (regionId != null) {
+                    const idx = player.presenceRegions.indexOf(regionId);
+                    if (idx >= 0) player.presenceRegions.splice(idx, 1);
+                }
+                return s;
+            }
+        }
+        return null;
+    },
+
     getPlayerModifiers(state, playerId) {
         const mods = {
             model_worker_cost_offset: 0,
@@ -188,6 +305,7 @@ const Engine = {
 
     getProjectedPlayerState(state, playerId, upToWorkerNumber) {
         const player = this.getPlayer(state, playerId);
+        this._ensureSlotState(player);
         const mods = this.getPlayerModifiers(state, playerId);
         const projected = {
             compute_level: player.computeLevel,
@@ -200,6 +318,10 @@ const Engine = {
             presence_regions: [...player.presenceRegions],
             subsidy_tokens: player.subsidyTokens,
             income: player.income,
+            // Projected board slots, so the next recruit/scale cost reflects
+            // multi-action sequences and any prior losses.
+            worker_board_slots: [...(player.workerBoardSlots || [])],
+            presence_board_slots: [...(player.presenceBoardSlots || [])],
         };
         const placements = state.workerPlacements
             .filter(p => p.playerId === playerId && p.workerNumber < upToWorkerNumber)
@@ -236,21 +358,25 @@ const Engine = {
                     }
                 }
             } else if (p.actionType === "recruit") {
-                const nextNum = projected.total_workers + 1;
-                if (nextNum <= 8) {
-                    const tier = Config.RECRUIT_COSTS[nextNum] || Config.RECRUIT_COSTS[4];
+                // Take the lowest-numbered worker token from the projected
+                // board (rulebook p.7 + p.14 most-expensive-empty-slot model).
+                if (projected.worker_board_slots.length > 0) {
+                    const slot = Math.min(...projected.worker_board_slots);
+                    const tier = Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
                     if (projected.corporate_funds >= tier.money && projected.net_worth_level >= tier.min_nw) {
                         projected.corporate_funds -= tier.money;
-                        projected.total_workers = nextNum;
+                        projected.total_workers += 1;
+                        projected.worker_board_slots = projected.worker_board_slots.filter(s => s !== slot);
                     }
                 }
             } else if (p.actionType === "scale_presence") {
-                const costIdx = projected.presence_count - 1;
-                if (costIdx < Config.PRESENCE_COSTS.length) {
-                    const cost = Config.PRESENCE_COSTS[costIdx];
+                if (projected.presence_board_slots.length > 0) {
+                    const slot = Math.min(...projected.presence_board_slots);
+                    const cost = Config.PRESENCE_COSTS[slot - 2];
                     if (projected.corporate_funds >= cost) {
                         projected.corporate_funds -= cost;
                         projected.presence_count += 1;
+                        projected.presence_board_slots = projected.presence_board_slots.filter(s => s !== slot);
                         if (p.targetRegion) {
                             projected.presence_regions.push(p.targetRegion);
                             const rs = state.regionStates.find(r => r.regionId === p.targetRegion);
@@ -298,9 +424,19 @@ const Engine = {
     },
 
     validateRecruit(state, playerId, projectedState) {
-        const nextNum = projectedState.total_workers + 1;
-        if (nextNum > 8) return {error: "Max workers reached."};
-        const tier = Config.RECRUIT_COSTS[nextNum] || Config.RECRUIT_COSTS[4];
+        // Use the *projected* board slots if available (set by
+        // getProjectedPlayerState); otherwise fall back to the player's
+        // live slots so direct callers (cards, tests) also get accurate
+        // costs.
+        let slot;
+        if (projectedState.worker_board_slots && projectedState.worker_board_slots.length > 0) {
+            slot = Math.min(...projectedState.worker_board_slots);
+        } else {
+            const player = this.getPlayer(state, playerId);
+            slot = this.nextWorkerSlot(player);
+        }
+        if (slot == null) return {error: "Max workers reached."};
+        const tier = Config.RECRUIT_COSTS[slot] || Config.RECRUIT_COSTS[4];
         if (projectedState.corporate_funds < tier.money || projectedState.net_worth_level < tier.min_nw)
             return {error: "Requirements not met for recruitment."};
         return null;
@@ -332,10 +468,16 @@ const Engine = {
             return {error: `${tier} can hold at most ${cap} regions. Increase Net Worth first.`};
         }
         if (projectedState.presence_count >= 10) return {error: "Maximum presence reached."};
-        let costIdx = projectedState.presence_count - 1;
-        if (costIdx < 0) costIdx = 0;
-        if (costIdx >= Config.PRESENCE_COSTS.length) return {error: "Max Expansion Limit"};
-        const cost = Config.PRESENCE_COSTS[costIdx];
+        // Cost from the projected board (rulebook p.14 most-expensive-empty-slot).
+        let slot;
+        if (projectedState.presence_board_slots && projectedState.presence_board_slots.length > 0) {
+            slot = Math.min(...projectedState.presence_board_slots);
+        } else {
+            const player = this.getPlayer(state, playerId);
+            slot = this.nextPresenceSlot(player);
+        }
+        if (slot == null) return {error: "Max Expansion Limit"};
+        const cost = Config.PRESENCE_COSTS[slot - 2];
         if (projectedState.corporate_funds < cost) return {error: `Insufficient funds. Need $${cost}.`};
         if (targetRegion) {
             if (projectedState.presence_regions.includes(targetRegion)) return {error: "Already have presence in this region."};
@@ -537,16 +679,15 @@ const Engine = {
             return {error: `${tier} can hold at most ${nwCap} regions.`};
         }
         if (player.presenceRegions.includes(targetRegion)) return {error: "Already present in this region."};
-        let costIdx = player.presenceCount - 1;
-        if (costIdx < 0) costIdx = 0;
-        const cost = costIdx < Config.PRESENCE_COSTS.length ? Config.PRESENCE_COSTS[costIdx] : Config.PRESENCE_COSTS[Config.PRESENCE_COSTS.length - 1];
-        const finalCost = Math.max(0, cost - player.tempPresenceMonetaryDiscount) + player.tempActionCostIncrease;
+        // Cost from the next presence board slot (rulebook p.14).
+        const baseCost = this.nextPresenceCost(player);
+        if (baseCost == null) return {error: "No presence tokens available."};
+        const finalCost = Math.max(0, baseCost - player.tempPresenceMonetaryDiscount) + player.tempActionCostIncrease;
         if (player.corporateFunds < finalCost) return {error: `Insufficient funds. Need $${finalCost}.`};
         const adjacent = player.presenceRegions.some(r => (Config.WORLD_MAP[r] || []).includes(targetRegion));
         if (!adjacent) return {error: "Region not adjacent."};
         player.corporateFunds -= finalCost;
-        player.presenceRegions.push(targetRegion);
-        player.presenceCount += 1;
+        this.scalePresenceFromBoard(player, targetRegion);
         const rs = state.regionStates.find(r => r.regionId === targetRegion);
         if (rs && rs.subsidyTokensRemaining > 0) {
             rs.subsidyTokensRemaining -= 1;
@@ -585,17 +726,20 @@ const Engine = {
 
     executeRecruitWorker(state, playerId, targetAction, targetRegion, targetCardId) {
         const player = this.getPlayer(state, playerId);
-        const nextNum = player.totalWorkers + 1;
-        if (nextNum > 8) return {error: "Max workers reached."};
-        const tier = Config.RECRUIT_COSTS[nextNum] || Config.RECRUIT_COSTS[4];
+        const tier = this.nextWorkerTier(player);
+        if (!tier) return {error: "Max workers reached."};
+        const slot = this.nextWorkerSlot(player);
         const recruitCost = tier.money + player.tempRecruitCostIncrease + player.tempActionCostIncrease;
         if (player.netWorthLevel < tier.min_nw) return {error: "Net Worth too low."};
         if (player.corporateFunds < recruitCost) return {error: `Insufficient funds. Need $${recruitCost}.`};
         player.corporateFunds -= recruitCost;
         player.tempRecruitCostIncrease = 0;
-        player.totalWorkers = nextNum;
+        // Pull the worker token from the board (rulebook p.14 — uses the
+        // most-expensive-empty-slot model so multi-loss-then-rebuy
+        // sequences charge the right slot).
+        this.recruitWorkerFromBoard(player);
         state.workerPlacements.push({
-            playerId, workerNumber: nextNum, actionType: targetAction,
+            playerId, workerNumber: slot, actionType: targetAction,
             targetRegion: targetRegion || null, targetCardId: targetCardId || null, targetSubAction: null,
         });
         return {action: "worker_recruited", new_total: player.totalWorkers, placed_at: targetAction};
@@ -829,16 +973,26 @@ const Engine = {
                 const p = livePlacements.find(wp => !resolved.has(wp.workerNumber));
                 if (!p) break;
 
-                // Re-collect group workers (raise_funds, train_model) from
-                // the LIVE list so a recruited worker added mid-resolution
-                // joins its group.
+                // Re-collect group workers from the LIVE list so a recruited
+                // worker added mid-resolution joins its group.
+                //
+                // Rulebook p.5/p.10 says Train Model and Raise Funds count
+                // *consecutive* Tech Workers — workers 1+2 form a group,
+                // workers 1+3 do not. Gather a contiguous run of same-action
+                // workers starting at p; any gap (different action or
+                // missing worker number) ends the group.
                 const remaining = livePlacements.filter(wp => !resolved.has(wp.workerNumber));
                 let groupWorkers, workerCount;
-                if (p.actionType === "raise_funds") {
-                    groupWorkers = remaining.filter(w => w.actionType === "raise_funds");
-                    workerCount = groupWorkers.length;
-                } else if (p.actionType === "train_model") {
-                    groupWorkers = remaining.filter(w => w.actionType === "train_model");
+                if (p.actionType === "raise_funds" || p.actionType === "train_model") {
+                    groupWorkers = [p];
+                    let lastNum = p.workerNumber;
+                    for (let i = 1; i < remaining.length; i++) {
+                        const next = remaining[i];
+                        if (next.actionType !== p.actionType) break;
+                        if (next.workerNumber !== lastNum + 1) break;
+                        groupWorkers.push(next);
+                        lastNum = next.workerNumber;
+                    }
                     workerCount = groupWorkers.length;
                 } else {
                     groupWorkers = [p]; workerCount = 1;
@@ -919,10 +1073,12 @@ const Engine = {
                 const slug = def ? def.effectSlug : null;
                 if (slug === "content_moderation") player.tempCardCostWorkerIncrease += 1;
                 // Card description: "They lose 1 Worker next round." Apply
-                // the loss now (start of next round), respecting min 3.
-                else if (slug === "ransomware") player.totalWorkers = Math.max(3, player.totalWorkers - 1);
+                // the loss now (start of next round), routed through the
+                // board-slot helper so the freed token sits on the most
+                // expensive empty slot for re-purchase (rulebook p.14).
+                else if (slug === "ransomware") this.returnWorkerToBoard(player);
                 else if (slug === "supply_chain_meltdown") player.tempActionCostIncrease += 3;
-                else if (slug === "poach_engineers") player.totalWorkers = Math.max(3, player.totalWorkers - 1);  // rulebook p.14 min 3
+                else if (slug === "poach_engineers") this.returnWorkerToBoard(player);  // rulebook p.14 min 3 + most-expensive-empty-slot
                 card.zone = `${card.subType}_discard`;
                 card.ownerId = null;
             }

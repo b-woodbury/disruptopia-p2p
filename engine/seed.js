@@ -88,6 +88,12 @@ const Seed = {
                 tempFreeHandCardUsed: false,    // Venture Mogul freebie (level-3 tile)
                 tempFreeActiveEffectUsed: false, // Infinite Loop freebie (level-3 tile)
                 ransomwareLocked: 0,
+                // Rulebook p.14: tokens lost from a card return to the most
+                // expensive empty slot on the Net Worth Tracking Board. The
+                // *board* state of each slot (4..8 for workers, 2..10 for
+                // presence) determines what the next recruit/scale costs.
+                workerBoardSlots: [4, 5, 6, 7, 8],
+                presenceBoardSlots: [2, 3, 4, 5, 6, 7, 8, 9, 10],
             });
         }
 

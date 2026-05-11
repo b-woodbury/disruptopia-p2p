@@ -243,9 +243,15 @@ function renderStrategyBoard() {
         if (me) {
             if (slug === 'buy_chips') cost = COMPUTE_COSTS[me.compute_level+1] || "MAX";
             else if (slug === 'recruit') {
-                const nextW = me.total_worker_count + 1;
-                if (nextW > 8) cost = "MAX";
-                else cost = WORKER_COSTS[nextW] || WORKER_COSTS[4] || "$2";
+                // Prefer the engine's slot-aware cost (rulebook p.14); fall back
+                // to the old sequential lookup if not present (older saves).
+                if (me.next_worker_cost != null) {
+                    cost = `$${me.next_worker_cost}`;
+                } else {
+                    const nextW = me.total_worker_count + 1;
+                    if (nextW > 8) cost = "MAX";
+                    else cost = WORKER_COSTS[nextW] || WORKER_COSTS[4] || "$2";
+                }
             }
             else if (slug === 'train_model') {
                 const modelRed = getProjectedModelCostReduction(me);
@@ -266,7 +272,11 @@ function renderStrategyBoard() {
                     else if (modelRed > 0) cost += ` (-${modelRed} active)`;
                 }
             } else if (slug === 'increase_net_worth') cost = me.net_worth===0 ? "$3 -2R" : me.net_worth===1 ? "$5 -4R" : "MAX";
-            else if (slug === 'scale_presence') cost = `$${PRESENCE_COSTS_LIST[me.presence_count-1]||14}`;
+            else if (slug === 'scale_presence') {
+                cost = me.next_presence_cost != null
+                    ? `$${me.next_presence_cost}`
+                    : `$${PRESENCE_COSTS_LIST[me.presence_count-1]||14}`;
+            }
             else if (['marketing','play_card','raise_funds'].includes(slug)) cost = "FREE";
         }
 
