@@ -11,6 +11,60 @@ const Engine = {
     clampRep(val) { return Math.max(-3, Math.min(10, val)); },
     clampPower(val) { return Math.max(1, Math.min(30, val)); },  // rulebook p.14
 
+    // ── State hash for desync detection ─────────────────────────────
+    // Deterministic FNV-1a hash over a canonical (key-sorted) projection
+    // of the game state. Skips ephemeral fields (animation queues, MP
+    // metadata) that legitimately differ between peers.
+    hashState(state) {
+        const canonical = this._canonicalize({
+            game: {
+                currentRound: state.game.currentRound,
+                gamePhase: state.game.gamePhase,
+                p1TokenIndex: state.game.p1TokenIndex,
+                millionaireCount: state.game.millionaireCount,
+                billionaireCount: state.game.billionaireCount,
+            },
+            players: state.players.map(p => ({
+                id: p.id, userName: p.userName, playerOrder: p.playerOrder,
+                corporateFunds: p.corporateFunds, personalFunds: p.personalFunds,
+                power: p.power, reputation: p.reputation,
+                computeLevel: p.computeLevel, modelVersion: p.modelVersion,
+                netWorthLevel: p.netWorthLevel, presenceCount: p.presenceCount,
+                presenceRegions: [...p.presenceRegions].sort((a, b) => a - b),
+                subsidyTokens: p.subsidyTokens, totalWorkers: p.totalWorkers,
+                income: p.income, vp: p.vp,
+                workerBoardSlots: [...(p.workerBoardSlots || [])].sort((a, b) => a - b),
+                presenceBoardSlots: [...(p.presenceBoardSlots || [])].sort((a, b) => a - b),
+            })),
+            regionStates: [...state.regionStates].sort((a, b) => a.regionId - b.regionId),
+            reputationTiles: state.reputationTiles.map(t => ({
+                id: t.id, level: t.level, effectCode: t.effectCode, ownerId: t.ownerId,
+            })).sort((a, b) => a.id - b.id),
+            // Card components — only zone + owner matters for sync (id is the key).
+            components: state.components.map(c => ({
+                id: c.id, zone: c.zone, ownerId: c.ownerId,
+            })).sort((a, b) => a.id - b.id),
+        });
+        return this._fnv1a(JSON.stringify(canonical));
+    },
+
+    _canonicalize(v) {
+        if (v === null || typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(x => this._canonicalize(x));
+        const out = {};
+        for (const k of Object.keys(v).sort()) out[k] = this._canonicalize(v[k]);
+        return out;
+    },
+
+    _fnv1a(str) {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = Math.imul(h, 0x01000193);
+        }
+        return (h >>> 0).toString(16).padStart(8, '0');
+    },
+
     getPlayer(state, playerId) {
         return state.players.find(p => p.id === playerId);
     },

@@ -15,14 +15,14 @@ window.Game = {
     setupDragging: null,
     setupClickSelected: null,
     // Multiplayer state. mode is 'local' | 'host' | 'join'. In 'host'/'join'
-    // mode, every state-changing action is broadcast through the relay and
-    // Game.PLAYER_ID is locked to the slot the player took.
+    // mode every state-changing action is broadcast over the WebRTC data
+    // channel and Game.PLAYER_ID is locked to the slot the player took.
     mp: {
         mode: 'local',
         gameCode: null,
-        relayUrl: null,
         connected: false,
         applyingRemote: false,  // set during remote-action application to skip re-broadcast
+        desync: null,           // last desync info, if any
     },
 };
 
@@ -54,8 +54,8 @@ async function init() {
             // re-establish the relay connection and replay any actions
             // that happened while we were offline.
             const savedMp = record.mp;
-            if (savedMp && (savedMp.mode === 'host' || savedMp.mode === 'join') && savedMp.gameCode && savedMp.relayUrl) {
-                await attemptReconnect(savedMp, record.lastActionIndex || 0);
+            if (savedMp && (savedMp.mode === 'host' || savedMp.mode === 'join') && savedMp.gameCode) {
+                await attemptReconnect(savedMp);
             }
             return;
         }
@@ -63,38 +63,28 @@ async function init() {
     showSetupScreen();
 }
 
-// Re-establish a multiplayer relay session after a reload.
-// Strategy: fetch the relay's authoritative state snapshot (which every
-// client pushes on every refresh) and install it. Then resume polling for
-// new actions. If the relay or the room is unreachable, fall back to
-// local-only mode and surface a warning.
-async function attemptReconnect(savedMp, lastIndex) {
+// Re-establish a WebRTC peer session after a reload.
+// Host: re-register the same peer ID; persisted IndexedDB state is the
+//       authoritative view, so we just resume from there.
+// Join: re-connect to the host and request a fresh snapshot via the
+//       data channel. If the host is offline, fall back to local mode
+//       with a warning (the saved state will be stale).
+async function attemptReconnect(savedMp) {
     addLog(`Reconnecting to ${savedMp.gameCode}…`);
+    Game.mp.mode = savedMp.mode;
+    Game.mp.gameCode = savedMp.gameCode;
+    Relay.configure(null, savedMp.gameCode, Game.PLAYER_ID);
+    wireRelayCallbacks();
     try {
-        const stateRes = await fetch(`${savedMp.relayUrl}/room/${savedMp.gameCode}/state`);
-        if (!stateRes.ok) throw new Error(`relay returned HTTP ${stateRes.status}`);
-        const remoteState = await stateRes.json();
-        // Sanity check the snapshot before installing.
-        if (!remoteState || !remoteState.players || !remoteState.game) {
-            throw new Error('relay returned empty / malformed state');
+        if (savedMp.mode === 'host') {
+            const res = await Relay.createRoom(Game.localState);
+            if (res.error) throw new Error(res.error);
+        } else {
+            const res = await Relay.joinRoom();
+            if (res.error) throw new Error(res.error);
+            if (res.state && res.state.players) Game.localState = res.state;
         }
-        // Adopt the relay's view. Our saved local state may be older if
-        // peers acted while we were offline.
-        Game.localState = remoteState;
-
-        // Catch up the relay's action index so polling picks up only
-        // *new* actions from here, not the entire log.
-        const actRes = await fetch(`${savedMp.relayUrl}/room/${savedMp.gameCode}/actions?since=0`);
-        const actData = actRes.ok ? await actRes.json() : {lastIndex: lastIndex};
-        Relay.configure(savedMp.relayUrl, savedMp.gameCode, Game.PLAYER_ID);
-        Relay._lastActionIndex = actData.lastIndex != null ? actData.lastIndex : lastIndex;
-        Relay.connected = true;
-        Game.mp.mode = savedMp.mode;
-        Game.mp.gameCode = savedMp.gameCode;
-        Game.mp.relayUrl = savedMp.relayUrl;
         Game.mp.connected = true;
-        wireRelayCallbacks();
-        Relay.startPolling(2500);
         refreshData();
         renderMpBanner();
         addLog(`Reconnected as ${savedMp.mode === 'host' ? 'Host' : 'Player'} ${Game.PLAYER_ID}.`);
@@ -102,7 +92,6 @@ async function attemptReconnect(savedMp, lastIndex) {
         Game.mp.mode = 'local';
         Game.mp.connected = false;
         Game.mp.gameCode = null;
-        Game.mp.relayUrl = null;
         renderMpBanner();
         addLog(`WARN: could not reconnect to ${savedMp.gameCode} (${e.message || e}). Continuing in local mode.`);
     }
@@ -271,20 +260,12 @@ function refreshData() {
         processPendingInteractions().finally(() => { Game._processingInteractions = false; });
     }
 
-    // Auto-save to IndexedDB
-    // Persist MP context too so reload can re-establish the relay session.
+    // Auto-save to IndexedDB. Persist MP context too so a reload can
+    // re-establish the WebRTC session (host re-registers, joiner reconnects).
     Persistence.saveState(Game.localState, {
         mp: Game.mp,
         playerId: Game.PLAYER_ID,
-        lastActionIndex: (typeof Relay !== 'undefined' && Relay._lastActionIndex) || 0,
     }).catch(e => console.warn("Save failed:", e));
-
-    // Push the engine state to the relay so any reconnecting peer can
-    // bootstrap from a fresh snapshot. Fire-and-forget — relay errors
-    // shouldn't disrupt local play.
-    if (Game.mp.mode !== 'local' && Game.mp.connected && !Game.mp.applyingRemote) {
-        Relay.pushState(Game.localState);
-    }
 }
 
 async function switchPlayer(newId) {
@@ -305,6 +286,11 @@ async function finishRound() {
         addLog(`Round ${result.current_round - 1} complete. Round ${result.current_round}/${result.max_rounds} begins.`);
     }
     refreshData();
+    // Broadcast our post-round state hash so peers can detect desync.
+    if (Game.mp.mode !== 'local' && Game.mp.connected && !Game.mp.applyingRemote) {
+        const h = Engine.hashState(Game.localState);
+        Relay.pushStateHash(Game.localState.game.currentRound, h);
+    }
 }
 
 async function resetGame() {
@@ -390,23 +376,20 @@ async function launchGame() {
     localStorage.setItem('active_player_id', Game.PLAYER_ID);
 
     if (Game.mp.mode === 'host') {
-        const relayUrl = document.getElementById('setup-relay-url-host').value.trim() || '/api';
         const code = Relay.generateGameCode();
-        Relay.configure(relayUrl, code, Game.PLAYER_ID);
+        Relay.configure(null, code, Game.PLAYER_ID);
         const status = document.getElementById('setup-host-status');
-        status.innerText = 'Creating room…';
+        status.innerText = 'Connecting to signaling broker…';
         document.getElementById('setup-host-code-value').innerText = code;
         document.getElementById('setup-host-code').style.display = 'block';
+        wireRelayCallbacks();
         const res = await Relay.createRoom(Game.localState);
         if (res.error) {
             status.innerText = `Failed: ${res.error}`;
             return;
         }
         Game.mp.gameCode = code;
-        Game.mp.relayUrl = relayUrl;
         Game.mp.connected = true;
-        wireRelayCallbacks();
-        Relay.startPolling(2500);
         status.innerText = 'Hosted. Waiting for joiners — share the code above.';
     }
 
@@ -418,21 +401,21 @@ async function launchGame() {
 }
 
 async function joinOnlineGame() {
-    const relayUrl = document.getElementById('setup-relay-url-join').value.trim() || '/api';
     const code = document.getElementById('setup-join-code').value.trim().toUpperCase();
     const slot = parseInt(document.getElementById('setup-join-slot').value);
     const status = document.getElementById('setup-join-status');
-    if (!code) { status.innerText = 'Game code required.'; return; }
+    if (!code) { status.innerText = 'Room code required.'; return; }
 
     // Player IDs are 1-indexed in the order Seed.createGame creates them.
     const joinerPlayerId = slot;
-    Relay.configure(relayUrl, code, joinerPlayerId);
-    status.innerText = 'Connecting…';
+    Relay.configure(null, code, joinerPlayerId);
+    wireRelayCallbacks();
+    status.innerText = 'Connecting to host via WebRTC…';
 
     const res = await Relay.joinRoom();
     if (res.error) { status.innerText = `Failed: ${res.error}`; return; }
     if (!res.state || !res.state.players) {
-        status.innerText = 'Host has not initialized state yet.'; return;
+        status.innerText = 'Host snapshot was empty.'; return;
     }
     if (!res.state.players.find(p => p.id === joinerPlayerId)) {
         status.innerText = `Slot ${slot} does not exist in this game.`; return;
@@ -440,20 +423,10 @@ async function joinOnlineGame() {
 
     Game.mp.mode = 'join';
     Game.mp.gameCode = code;
-    Game.mp.relayUrl = relayUrl;
     Game.mp.connected = true;
     Game.localState = res.state;
     Game.PLAYER_ID = joinerPlayerId;
     localStorage.setItem('active_player_id', Game.PLAYER_ID);
-    wireRelayCallbacks();
-    // Apply any actions that were queued before we joined.
-    if (res.actionCount && res.actionCount > 0) {
-        const catchup = await fetch(`${relayUrl}/room/${code}/actions?since=0`).then(r => r.json()).catch(() => ({actions: []}));
-        for (const wrapped of (catchup.actions || [])) {
-            if (wrapped.playerId !== joinerPlayerId) applyRemoteAction(wrapped.action);
-        }
-    }
-    Relay.startPolling(2500);
     status.innerText = 'Joined.';
     showGameScreen();
     refreshData();
@@ -466,6 +439,32 @@ function wireRelayCallbacks() {
     Relay.onActionReceived = (wrapped) => {
         try { applyRemoteAction(wrapped.action); }
         catch (e) { console.error('applyRemoteAction failed', e); }
+    };
+    // Host: when a joiner connects, log it and immediately offer the
+    // current state as a snapshot.
+    Relay.onPlayerJoined = (info) => {
+        addLog(`Player ${info.playerId || '?'} joined the room.`);
+    };
+    Relay.onPlayerLeft = (peerId) => {
+        addLog(`Peer disconnected (${peerId}).`);
+    };
+    // Host: respond to snapshot requests from joiners (cold join + reconnect).
+    Relay.onSnapshotRequest = (peerId, send) => {
+        send(Game.localState);
+    };
+    // Joiner: late-arriving snapshot from host (e.g., reconnect path).
+    Relay.onSnapshot = (state) => {
+        if (Game.mp.mode === 'join' && state && state.players) {
+            Game.localState = state;
+            refreshData();
+            addLog('State resynced from host.');
+        }
+    };
+    // Desync alarm — surfaces in the multiplayer banner.
+    Relay.onStateHashMismatch = (info) => {
+        Game.mp.desync = info;
+        renderMpBanner();
+        addLog(`WARN: state hash mismatch with peer at round ${info.round} (mine=${info.mine}, theirs=${info.theirs}).`);
     };
 }
 
@@ -529,11 +528,16 @@ function renderMpBanner() {
         return;
     }
     banner.style.display = 'flex';
+    const desync = Game.mp.desync;
+    const desyncMarkup = desync
+        ? `<span style="margin-left:auto; padding:2px 8px; background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; border-radius:6px; font-weight:600;">DESYNC @ round ${desync.round}</span>`
+        : '';
     banner.innerHTML = `
         <span style="font-weight:600; color:#4f46e5;">${Game.mp.mode === 'host' ? 'Hosting' : 'Joined'}</span>
         <span style="color:#78716c;">code</span>
         <span style="font-family:'Fredoka',cursive; letter-spacing:0.15rem; color:#4f46e5; font-weight:600;">${Game.mp.gameCode}</span>
         <span style="color:#78716c;">as P${Game.PLAYER_ID}</span>
+        ${desyncMarkup}
     `;
     // In MP, lock the player selector to the local player.
     const sel = document.getElementById('player-select');

@@ -2,71 +2,84 @@
 
 A static-frontend version of Disruptopia — an AI board game where you build a
 rogue AI company and race competitors to take over the world. Game state lives
-in the browser (IndexedDB); an optional lightweight relay server enables async
-multiplayer.
+in the browser (IndexedDB); remote multiplayer is true browser-to-browser P2P
+over WebRTC.
 
 ## Architecture
 
 - **Frontend**: plain HTML/CSS/JS, no build step. The full game engine runs
   client-side from [`engine/`](engine/), with UI in [`ui/`](ui/) and rendering
   via the world map in [`assets/`](assets/).
-- **Relay** ([`server/relay.py`](server/relay.py)): a tiny FastAPI "mailbox"
-  that stores rooms, queues actions, and serves them back when players poll.
-  It does **not** run game logic — that all happens in the browser.
-- **Combined entry** ([`app.py`](app.py)): a FastAPI app that serves the static
-  frontend and mounts the relay API under `/api`, so a single process on a
-  single port runs the whole thing.
+- **Networking** ([`network/peer.js`](network/peer.js) +
+  [`network/relay-client.js`](network/relay-client.js)): WebRTC data channels
+  via [PeerJS](https://peerjs.com/). The public PeerJS broker (free) mediates
+  the initial handshake; once peers are connected, *all* game traffic flows
+  browser-to-browser, end-to-end encrypted via DTLS. No game state ever
+  touches a server.
+- **Static server** ([`app.py`](app.py)): a tiny FastAPI app that serves the
+  frontend bundle. Nothing more — there is no relay, no shared backend.
 
 ## Run it
 
-Requires Python 3.10+ with `fastapi`, `uvicorn`, and `pydantic` installed.
+Requires Python 3.10+ with `fastapi` and `uvicorn` installed.
 
 ```bash
-pip install fastapi uvicorn pydantic
+pip install fastapi uvicorn
 uvicorn app:app --host 0.0.0.0 --port 7869
 ```
 
 Then open <http://localhost:7869/>.
 
-The relay API is reachable at `/api/*` (e.g. `POST /api/room`,
-`GET /api/room/{code}/actions?since=N`). The frontend can point at any relay
-URL via the in-game setup; pointing at `/api` uses the bundled relay on the
-same origin.
+Each player runs their *own* copy of this server (or any static-file server)
+to load the page. There is no shared host machine.
 
-## Multiplayer (remote, real-time-ish)
+## Multiplayer (true peer-to-peer over WebRTC)
 
 The setup screen has three modes: **Local Game** (hot-seat, one machine),
 **Host Online**, and **Join Online**.
 
-To play with someone on another machine:
+To play with someone in another city:
 
-1. **Host** picks "Host Online", fills in names + starting regions, and clicks
-   *Host Game*. The setup screen shows a 6-character game code.
-2. The host shares two things with the joiner: the **game code** and the
-   **relay URL** (the URL where the joiner can reach the host's server). If
-   both players are on the same LAN this can be `http://<host-ip>:7869/api`.
-   For remote play you need to expose the host machine — Tailscale Funnel,
-   ngrok, or any HTTPS tunnel works, e.g. `https://gx10-abd7.tailea39b3.ts.net/api`.
-3. **Joiner** picks "Join Online", pastes the relay URL + game code, selects
-   the player slot the host assigned them (Player 2 / Player 3 / …), and
-   clicks *Join Game*.
+1. Each player starts their own copy of the server (`uvicorn app:app …`) and
+   opens <http://localhost:7869/> on their own machine.
+2. **Host** picks "Host Online", fills in names + starting regions, and clicks
+   *Host Game*. The setup screen shows a 10-character room code.
+3. The host shares **just the room code** (10 chars, ~50 bits of entropy) by
+   whatever channel — DM, Discord, voice, whatever.
+4. **Joiner** picks "Join Online", pastes the room code, selects the player
+   slot the host assigned them (Player 2 / Player 3 / …), and clicks
+   *Join Game*.
 
-Sync model: every client runs the full game engine locally. Worker placements,
-undo, the round-execute trigger, and discards are broadcast as an action log
-through the relay; each client applies remote actions to its own copy. The
-engine is deterministic, so all clients converge. Polling interval is 2.5s.
+No port forwarding, no shared server URL, no Tailscale — the browsers find
+each other through PeerJS's free public signaling broker, then negotiate a
+direct WebRTC connection. Works through typical home NATs.
 
-Mid-game reconnect: every refresh pushes the current engine state to the
-relay as a snapshot, and the multiplayer context (mode, game code, relay
-URL, player slot) is persisted to IndexedDB alongside the state. If you
-reload the page, `init()` re-reads the saved context, fetches the
-authoritative snapshot from the relay, installs it, and resumes polling.
-Falls back to local-only mode if the relay or the room is unreachable
-(e.g. room expired past its 24h TTL).
+**Sync model**: every client runs the full game engine locally. Worker
+placements, undo, round-execute, discards, and pending-interaction
+resolutions are broadcast as small action messages over the data channel;
+each client applies remote actions to its own copy. The engine is
+deterministic, so all clients converge.
+
+**Desync detection**: after every `finishRound`, each client broadcasts a
+FNV-1a hash of its canonical game state. If a peer's hash differs from yours
+for the same round, a `DESYNC @ round N` badge appears in the multiplayer
+banner. This catches tampering, engine bugs, and dropped-action races.
+
+**Mid-game reconnect**: the multiplayer context (mode, room code, player
+slot) is persisted to IndexedDB alongside the engine state. If you reload
+the page, `init()` re-establishes the WebRTC connection — host re-registers
+the same peer ID, joiner reconnects to the host and pulls a fresh state
+snapshot. Falls back to local-only mode if the host is unreachable.
+
+**Privacy**: WebRTC data channels are encrypted end-to-end via DTLS. The
+PeerJS broker only sees the initial handshake (peer IDs + ICE candidates),
+not game traffic. The room code is the only thing protecting your room from
+unwanted joiners — 10 random chars from a 31-letter alphabet (`O`, `0`, `1`,
+`I`, `L` excluded for share-by-voice friendliness) ≈ 50 bits of entropy.
 
 ## Tests
 
-Four Playwright suites (207 assertions total):
+Five Playwright suites:
 
 ```bash
 pip install playwright
@@ -78,14 +91,19 @@ python tests/playwright_test.py
 # Multi-round exploration (97 assertions)
 python tests/exploration_test.py
 
-# Two-browser-context multiplayer (21 tests)
+# Rulebook-compliance checks (74 assertions)
+python tests/rulebook_test.py
+
+# Two-browser-context multiplayer over real WebRTC (31 assertions)
 python tests/multiplayer_test.py
 
-# Rulebook-compliance checks (21 tests)
-python tests/rulebook_test.py
+# LLM agent plays a full game via Ollama (smoke / integration)
+python tests/agent_test.py
 ```
 
-All four expect the server at <http://localhost:7869/>.
+All five expect the server at <http://localhost:7869/>. The multiplayer
+suite needs an active internet connection (the PeerJS public broker is
+reached via `wss://0.peerjs.com`).
 
 ## License
 

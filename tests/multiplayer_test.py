@@ -58,8 +58,8 @@ def host_game(page):
     page.locator("#setup-region-1").select_option("6")
     # Click "Host Game"
     page.click("#setup-launch-btn")
-    # Wait for the relay round-trip
-    time.sleep(2.5)
+    # WebRTC broker handshake takes ~3-6s end to end.
+    time.sleep(6.0)
     code = page.locator("#setup-host-code-value").inner_text().strip()
     return code
 
@@ -70,7 +70,8 @@ def join_game(page, code, slot=2):
     page.locator("#setup-join-code").fill(code)
     page.locator("#setup-join-slot").select_option(str(slot))
     page.click("text=Join Game")
-    time.sleep(2.5)
+    # Host-snapshot send + WebRTC offer/answer.
+    time.sleep(7.0)
 
 
 def run():
@@ -84,7 +85,7 @@ def run():
 
         print("\n=== 1. Host creates room ===")
         code = host_game(host_page)
-        log("1.1 game code looks valid (6 chars)", len(code) == 6 and code.isalnum(), f"code={code!r}")
+        log("1.1 game code looks valid (10 chars)", len(code) == 10 and code.isalnum(), f"code={code!r}")
         host_screen_visible = host_page.locator("#game-screen").is_visible()
         log("1.2 host advanced to game screen", host_screen_visible)
         host_mp = host_page.evaluate("Game.mp")
@@ -254,9 +255,10 @@ def run():
                 placements: Game.localState.workerPlacements.length,
             })
         """)
-        # Host makes ONE more change so the relay state is newer than the
+        # Host makes ONE more change so its live state is newer than the
         # joiner's pre-reload state — proves the reconnect is fetching
-        # from the relay, not just relying on local IndexedDB.
+        # a fresh snapshot from the host via WebRTC, not just relying on
+        # local IndexedDB.
         host_page.locator("#player-select")  # no-op, just keep context alive
         host_page.evaluate("""
             (() => {
@@ -272,12 +274,13 @@ def run():
                 refreshData();
             })()
         """)
-        time.sleep(2)  # give the push a moment to land
+        time.sleep(2)  # give the action broadcast a moment to land
 
         # Reload the joiner's page — IndexedDB persists, so init() should
         # restore Game.mp and call attemptReconnect.
         join_page.reload(wait_until="networkidle")
-        time.sleep(4)  # allow init + fetch + apply
+        # Allow init + PeerJS re-handshake + snapshot transfer.
+        time.sleep(8)
 
         after_reload = join_page.evaluate("""
             ({
@@ -292,8 +295,43 @@ def run():
         log("8.1 game screen restored after reload", after_reload["gameScreenVisible"], str(after_reload))
         log("8.2 MP mode preserved as 'join' across reload", after_reload["mode"] == "join", str(after_reload))
         log("8.3 game code preserved across reload", after_reload["code"] == before_reload["code"], str(after_reload))
-        log("8.4 relay reconnect succeeded (Game.mp.connected=true)", after_reload["connected"], str(after_reload))
+        log("8.4 peer reconnect succeeded (Game.mp.connected=true)", after_reload["connected"], str(after_reload))
         log("8.5 player id preserved across reload", after_reload["pid"] == before_reload["pid"], str(after_reload))
+
+        print("\n=== 9. State-hash desync detection ===")
+        # First make sure both sides are perfectly in sync (joiner just
+        # reloaded and pulled a fresh snapshot in step 8) — exchange the
+        # current state hash and confirm no alarm fires.
+        host_page.evaluate("Game.mp.desync = null; Relay.pushStateHash(Game.localState.game.currentRound, Engine.hashState(Game.localState))")
+        join_page.evaluate("Game.mp.desync = null; Relay.pushStateHash(Game.localState.game.currentRound, Engine.hashState(Game.localState))")
+        time.sleep(1.5)
+        host_desync = host_page.evaluate("Game.mp.desync")
+        join_desync = join_page.evaluate("Game.mp.desync")
+        log("9.1 matching state hashes do NOT trigger desync alarm",
+            host_desync is None and join_desync is None,
+            f"host={host_desync} join={join_desync}")
+
+        # Now intentionally diverge: host bumps p1's power locally without
+        # broadcasting. The next hash exchange should fire the alarm.
+        host_page.evaluate("""
+            Game.localState.players[0].power = (Game.localState.players[0].power || 0) + 7;
+            Relay.pushStateHash(Game.localState.game.currentRound, Engine.hashState(Game.localState));
+        """)
+        time.sleep(1.0)
+        # Joiner re-broadcasts its (unchanged) hash so host sees the mismatch too.
+        join_page.evaluate("Relay.pushStateHash(Game.localState.game.currentRound, Engine.hashState(Game.localState))")
+        time.sleep(1.0)
+        host_desync = host_page.evaluate("Game.mp.desync")
+        join_desync = join_page.evaluate("Game.mp.desync")
+        log("9.2 hash divergence triggers desync alarm on joiner",
+            join_desync is not None and "round" in (join_desync or {}),
+            f"join_desync={join_desync}")
+        log("9.3 hash divergence triggers desync alarm on host",
+            host_desync is not None and "round" in (host_desync or {}),
+            f"host_desync={host_desync}")
+        # DESYNC banner should be surfaced
+        banner_text = join_page.locator("#mp-banner").inner_text() if join_page.locator("#mp-banner").is_visible() else ""
+        log("9.4 joiner banner shows DESYNC", "DESYNC" in banner_text, f"banner={banner_text!r}")
 
         host_ctx.close()
         join_ctx.close()

@@ -506,11 +506,9 @@
             <div id="setup-players-container"></div>
             <div id="setup-map-container" style="margin: 15px 0;"></div>
 
-            <!-- Relay URL (only shown in host mode) -->
-            <div id="setup-host-relay" style="display:none; margin: 8px 0;">
-                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Relay URL</label><br>
-                <input id="setup-relay-url-host" type="text" value="/api" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Inter',system-ui,sans-serif;">
-                <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">Use <code>/api</code> for same-origin (this server), or a full URL like <code>https://gx10-abd7.tailea39b3.ts.net/api</code> for remote access.</div>
+            <!-- Connection mode notice (host mode only) -->
+            <div id="setup-host-relay" style="display:none; margin: 8px 0; padding:8px 10px; background:#f5f0e8; border-radius:6px; color:#78716c; font-size:0.72rem;">
+                Direct peer-to-peer over WebRTC — no shared server. Both players just need a working internet connection.
             </div>
 
             <button id="setup-launch-btn" onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
@@ -520,21 +518,19 @@
             <!-- After hosting, show the game code here -->
             <div id="setup-host-code" style="display:none; margin-top:12px; padding:12px; background:#eef2ff; border:1px solid #4f46e5; border-radius:10px; text-align:center;">
                 <div style="color:#78716c; font-size:0.8rem;">Share this code with your opponents:</div>
-                <div id="setup-host-code-value" style="font-family:'Fredoka',cursive; font-size:2rem; letter-spacing:0.3rem; color:#4f46e5; font-weight:700; margin:6px 0;"></div>
+                <div id="setup-host-code-value" style="font-family:'Fredoka',cursive; font-size:1.7rem; letter-spacing:0.2rem; color:#4f46e5; font-weight:700; margin:6px 0; word-break:break-all;"></div>
                 <div id="setup-host-status" style="color:#78716c; font-size:0.75rem;"></div>
             </div>
         </div>
 
         <!-- JOIN panel -->
         <div id="setup-join" style="display:none;">
-            <div style="margin-bottom: 10px;">
-                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Relay URL</label><br>
-                <input id="setup-relay-url-join" type="text" value="/api" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Inter',system-ui,sans-serif;">
-                <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">Same URL as the host shared with you (e.g. <code>https://...ts.net/api</code>).</div>
+            <div style="margin-bottom: 10px; padding:8px 10px; background:#f5f0e8; border-radius:6px; color:#78716c; font-size:0.72rem;">
+                Direct peer-to-peer over WebRTC. Paste the room code your host shared.
             </div>
             <div style="margin-bottom: 10px;">
-                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Game Code</label><br>
-                <input id="setup-join-code" type="text" maxlength="6" placeholder="ABCDEF" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:1rem; font-family:'Fredoka',cursive; letter-spacing:0.2rem; text-transform:uppercase;">
+                <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Room Code</label><br>
+                <input id="setup-join-code" type="text" maxlength="10" placeholder="ABCDEFGHJK" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:1rem; font-family:'Fredoka',cursive; letter-spacing:0.2rem; text-transform:uppercase;">
             </div>
             <div style="margin-bottom: 10px;">
                 <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Which player slot are you?</label><br>
@@ -676,7 +672,10 @@
 <script src="engine/availability.js"></script>
 <script src="engine/seed.js"></script>
 <!-- Network (persistence + optional relay) -->
+<!-- PeerJS: WebRTC data channels (signaling via free public broker). -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="network/persistence.js"></script>
+<script src="network/peer.js"></script>
 <script src="network/relay-client.js"></script>
 <!-- UI -->
 <script src="ui/rendering.js"></script>
