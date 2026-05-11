@@ -1,11 +1,17 @@
 """
 Disruptopia P2P - LLM agent end-to-end test.
 
-Drives a full 2-player game via an Ollama LLM. The agent reads game
-state, proposes worker placements / card plays via JSON, executes them
-through the browser, then exercises the real UI for round resolution
-and pending-interaction modals. Asserts the game completes (or hits the
-round cap) without JavaScript errors.
+Drives a full 2-player game where each seat is played by an independent
+LLM agent. Both seats hit the same vLLM-hosted model (gpt-oss-120b by
+default) but with distinct personas — Player 1 is a tech-builder, Player
+2 is a sabotage-heavy disruptor — and separate decision contexts.
+
+The agents read game state via page.evaluate(), propose worker placements
+and card plays as JSON, execute them through the browser, then exercise
+the real UI for round resolution and pending-interaction modals.
+
+Asserts: the game completes (or hits the round cap) without JavaScript
+errors, and final stats stay within rulebook bounds.
 
 This is a *smoke / integration* test — it complements the deterministic
 suites by catching UI hangs, dead-end modals, prompts that don't fire,
@@ -18,10 +24,12 @@ Run the test:
     python tests/agent_test.py
 
 Env:
-    AGENT_MODEL          Ollama model (default: nemotron-3-super:latest)
+    AGENT_API_URL        OpenAI-compatible endpoint (default vLLM at :8000)
+    AGENT_MODEL          Model id (default: openai/gpt-oss-120b)
     AGENT_MAX_ROUNDS     Hard cap rounds (default: 8)
     AGENT_HEADLESS       "0" to watch the browser (default: 1)
     AGENT_TURN_TIMEOUT   Per-LLM-call seconds (default: 600)
+    AGENT_PERSONAS       "0" to disable personas (both seats identical prompt)
 """
 import json
 import os
@@ -34,11 +42,12 @@ import requests
 from playwright.sync_api import sync_playwright
 
 BASE_URL = "http://localhost:7869"
-OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
-MODEL = os.getenv("AGENT_MODEL", "nemotron-3-super:latest")
+API_URL = os.getenv("AGENT_API_URL", "http://localhost:8000/v1/chat/completions")
+MODEL = os.getenv("AGENT_MODEL", "openai/gpt-oss-120b")
 MAX_ROUNDS = int(os.getenv("AGENT_MAX_ROUNDS", "8"))
 HEADLESS = os.getenv("AGENT_HEADLESS", "1") != "0"
 LLM_TIMEOUT = int(os.getenv("AGENT_TURN_TIMEOUT", "600"))
+USE_PERSONAS = os.getenv("AGENT_PERSONAS", "1") != "0"
 
 PASS = 0
 FAIL = 0
@@ -62,24 +71,37 @@ def log(name, ok, detail=""):
 # LLM PLUMBING
 # ─────────────────────────────────────────────────────────────────────
 
-def ask_llm(system, user, max_retries=2):
-    """Call Ollama's OpenAI-compatible endpoint. Returns content string."""
+def ask_llm(system, user, max_retries=2, temperature=0.3, max_tokens=1500):
+    """Call the configured OpenAI-compatible endpoint. Returns content string.
+
+    gpt-oss-120b and similar reasoning models put internal thought in a
+    separate `reasoning` field. The actual answer is in `content`. We read
+    `content` first and fall back to `reasoning` if content is empty (which
+    happens if the model truncates before emitting the answer).
+    """
     global LLM_CALLS
     last_err = None
     for attempt in range(max_retries + 1):
         try:
             LLM_CALLS += 1
-            r = requests.post(OLLAMA_URL, json={
+            r = requests.post(API_URL, json={
                 "model": MODEL,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                "temperature": 0.2,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
                 "stream": False,
             }, timeout=LLM_TIMEOUT)
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
+            msg = r.json()["choices"][0]["message"]
+            content = msg.get("content") or ""
+            if content.strip():
+                return content
+            # Reasoning-model fallback: sometimes the answer ends up in
+            # the reasoning trace if `content` was truncated.
+            return msg.get("reasoning") or ""
         except Exception as e:
             last_err = e
             time.sleep(1.5)
@@ -151,7 +173,13 @@ REGION_NAMES = [
 
 
 def snapshot_for_llm(page, player_idx):
-    """Return a compact dict the LLM can reason over."""
+    """Compact dict the LLM can reason over. Trimmed to fit small context windows.
+
+    Card descriptions are clipped to ~100 chars; competitor blocks drop
+    presence regions; availability is reduced to a list of available
+    actions. This keeps the prompt well under 4096 tokens with headroom
+    for the system prompt and response.
+    """
     return page.evaluate("""
         (idx) => {
             const s = Game.localState;
@@ -160,29 +188,31 @@ def snapshot_for_llm(page, player_idx):
             const mods = Engine.getPlayerModifiers(s, p.id);
             const avail = Availability.getReport(proj, 99, mods, true);
 
+            const clip = (str, n) => {
+                if (!str) return "";
+                str = str.replace(/\\s+/g, " ").trim();
+                return str.length > n ? str.slice(0, n - 1) + "…" : str;
+            };
+
             const handComps = s.components.filter(c => c.zone === `hand_p${p.id}` && c.ownerId === p.id);
             const hand = handComps.map(c => {
                 const d = s.cardDefinitions.find(x => x.id === c.cardDetailsId);
-                return {
-                    id: c.id,
-                    name: d ? d.name : "?",
-                    cost: d ? d.cost : 0,
-                    description: d ? d.description : "",
-                    requirements: d ? d.requirements : "",
-                    is_effect: d ? d.isEffect : false,
-                };
-            });
+                return d ? {
+                    id: c.id, name: d.name, cost: d.cost,
+                    deck: d.deck, is_effect: d.isEffect,
+                    desc: clip(d.description, 110),
+                } : null;
+            }).filter(Boolean);
 
             const activeEffects = [];
             for (let slot = 1; slot <= 3; slot++) {
                 const comp = s.components.find(c => c.zone === `active_effect_card_slot_${slot}_p${p.id}`);
                 if (comp) {
                     const d = s.cardDefinitions.find(x => x.id === comp.cardDetailsId);
-                    activeEffects.push({slot, name: d ? d.name : "?", description: d ? d.description : ""});
+                    if (d) activeEffects.push({slot, name: d.name, desc: clip(d.description, 80)});
                 }
             }
 
-            // Compute neighbor regions (for scale_presence target options)
             const owned = new Set(p.presenceRegions);
             const neighbors = new Set();
             for (const r of owned) {
@@ -191,12 +221,15 @@ def snapshot_for_llm(page, player_idx):
                 }
             }
 
-            // Competitor summaries
+            // Reduce availability to a flat list of available action slugs.
+            const availableActions = Object.keys(avail).filter(k => avail[k] && avail[k].available);
+
             const competitors = s.players.filter(x => x.id !== p.id).map(c => ({
                 id: c.id, name: c.userName,
-                net_worth: c.netWorthLevel, model: c.modelVersion, power: c.power,
-                reputation: c.reputation, compute: c.computeLevel,
-                presence: [...c.presenceRegions].sort((a,b)=>a-b),
+                nw: c.netWorthLevel, mv: c.modelVersion, pwr: c.power,
+                rep: c.reputation, cpu: c.computeLevel,
+                pres: c.presenceCount,
+                shared: [...c.presenceRegions].filter(r => owned.has(r)),
             }));
 
             return {
@@ -204,11 +237,11 @@ def snapshot_for_llm(page, player_idx):
                 max_rounds: s.game.maxRounds,
                 me: {
                     id: p.id, name: p.userName,
-                    net_worth: p.netWorthLevel,
+                    nw: p.netWorthLevel,
                     funds: p.corporateFunds, personal: p.personalFunds,
-                    power: p.power, reputation: p.reputation,
+                    power: p.power, rep: p.reputation,
                     compute: p.computeLevel, model: p.modelVersion,
-                    presence_count: p.presenceCount,
+                    presence: p.presenceCount,
                     presence_regions: [...p.presenceRegions].sort((a,b)=>a-b),
                     subsidies: p.subsidyTokens,
                     total_workers: p.totalWorkers, income: p.income,
@@ -219,8 +252,7 @@ def snapshot_for_llm(page, player_idx):
                     active_effects: activeEffects,
                 },
                 competitors,
-                availability: avail,
-                vp_breakdown: Engine.calculateGameLeaderboard(s).find(r => r.player_id === p.id) || {},
+                available_actions: availableActions,
             };
         }
     """, player_idx)
@@ -235,24 +267,21 @@ def detect_js_errors(page):
 # LLM DECISION FORMAT
 # ─────────────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are playing Disruptopia, a board game about ruthless AI startups.
+BASE_SYSTEM = """You are playing Disruptopia, a board game about ruthless AI startups.
 
-Rules summary you need:
-- Each round you place 3 (or more) Tech Workers on the Quarterly Strategy Board.
-- Workers fire in numerical order. Workers 1, 2, 3 are yours by default.
-- The 8 actions are:
-  buy_chips, recruit, train_model, increase_net_worth,
-  marketing, scale_presence, play_card, raise_funds.
-- `train_model` and `raise_funds` accept multiple CONSECUTIVE workers (e.g. workers 1+2). Workers 1+3 do NOT form a group.
-- `play_card` consumes N workers where N is the card cost; multiple workers on play_card let you play multiple cards.
-- `scale_presence` needs an adjacent region to expand into.
-- `recruit` lets you take a Tech Worker and immediately assign it to ANY action.
+Rules:
+- Each round you place 3+ Tech Workers on the Strategy Board.
+- Workers fire in numerical order (1, 2, 3...).
+- Actions: buy_chips, recruit, train_model, increase_net_worth, marketing, scale_presence, play_card, raise_funds.
+- train_model + raise_funds count CONSECUTIVE workers as one group (workers 1+2 yes, 1+3 no).
+- play_card consumes N workers where N = card cost (0, 1, or 2).
+- scale_presence requires an adjacent region.
+- recruit takes a new Tech Worker and assigns it to ANY action immediately.
 - Game ends after the round any player hits Model Version 7.
 
-Victory points:
-- 1VP per 5 Power + 1VP per Model Version + 1VP per Region + Millionaire/Billionaire bonuses + highest-personal-funds bonus.
+Scoring: 1VP per 5 Power, 1VP per Model Version, 1VP per Region, Millionaire/Billionaire bonuses, highest-personal-funds bonus.
 
-You will be given the current state as JSON. Return a JSON object describing your strategy this round. NO prose, NO markdown — just a JSON object matching:
+You will receive game state as JSON. Return ONLY a JSON object — no prose, no markdown:
 
 {
   "placements": [
@@ -260,20 +289,31 @@ You will be given the current state as JSON. Return a JSON object describing you
     {"worker": 2, "action": "raise_funds"},
     {"worker": 3, "action": "scale_presence", "region": 3}
   ],
-  "card_plays": [
-    {"worker_first": 2, "card_id": 42}
-  ]
+  "card_plays": [{"worker_first": 2, "card_id": 42}]
 }
 
-Notes:
-- `placements[].worker` is the worker number (1-indexed). Must cover workers 1..total_workers.
-- For `play_card`, set `action: "play_card"` and add it to placements; also describe it in card_plays with the same starting worker number.
-- For `scale_presence`, include `region` (one of your neighbors).
-- For `train_model` / `raise_funds` you may set multiple consecutive workers with the same action.
-- Only suggest actions that are listed as `available: true` in the availability section.
-- If your hand has a great card and a play_card slot makes sense, use it. Otherwise stick to basic actions.
-- Be aggressive about Model Version progress — the game ends when someone hits V7.
+Rules for placements:
+- Must cover workers 1..total_workers.
+- For play_card: include card_id and the starting worker.
+- For scale_presence: include `region` from your `neighbors` list.
+- Only choose actions where availability says available:true.
 """
+
+PERSONA_BUILDER = """
+Your style: TECH BUILDER. Race to Model Version 7 as fast as possible to end the game with a strong board.
+Priorities: buy_chips → train_model → increase_net_worth → scale_presence. Use research cards aggressively. Avoid sabotage cards unless you're behind."""
+
+PERSONA_DISRUPTOR = """
+Your style: SABOTAGE DISRUPTOR. Stack power, raise funds, and use sabotage cards to slow competitors.
+Priorities: raise_funds, marketing, scale_presence to share borders, then play sabotage cards on shared-presence opponents. Don't ignore training, but never lead the model race — let competitors race so you can profit from interference."""
+
+DEFAULT_SYSTEM = BASE_SYSTEM
+
+
+def system_prompt_for(player_idx):
+    if not USE_PERSONAS:
+        return BASE_SYSTEM
+    return BASE_SYSTEM + (PERSONA_BUILDER if player_idx == 0 else PERSONA_DISRUPTOR)
 
 
 def parse_decision(decision, total_workers):
@@ -435,12 +475,20 @@ def play_player_turn(page, player_idx, round_n):
     pid = snap["me"]["id"]
     total_workers = snap["me"]["total_workers"]
 
-    user_msg = f"Round {round_n}. Your state:\n```json\n{json.dumps(snap, indent=2)}\n```\nReturn the JSON strategy now."
-    reply = ask_llm(SYSTEM_PROMPT, user_msg)
+    sys_prompt = system_prompt_for(player_idx)
+    user_msg = (
+        f"Round {round_n}. Your state:\n"
+        f"```json\n{json.dumps(snap, indent=2)}\n```\n"
+        f"Return the JSON strategy now."
+    )
+    reply = ask_llm(sys_prompt, user_msg)
     decision = parse_json_block(reply)
     placements = parse_decision(decision, total_workers) if decision else []
 
-    # Ensure every worker gets something
+    # Build an availability dict {action_slug: {available: bool}} from the
+    # flat list the snapshot now provides.
+    avail_dict = {a: {"available": True} for a in snap.get("available_actions", [])}
+
     by_n = {p["worker"]: p for p in placements}
     chosen = []
     for n in range(1, total_workers + 1):
@@ -449,7 +497,7 @@ def play_player_turn(page, player_idx, round_n):
             page, pid, n,
             plan.get("action"), plan.get("region"),
             plan.get("card_id"), plan.get("sub_action"),
-            snap["availability"],
+            avail_dict,
         )
         chosen.append({"worker": n, "action": action, "error": err})
     return chosen
@@ -491,7 +539,12 @@ def fresh_game(page):
 
 
 def run():
-    print(f"Agent test starting. Model={MODEL}, max_rounds={MAX_ROUNDS}, headless={HEADLESS}")
+    persona_label = "two personas (Builder vs Disruptor)" if USE_PERSONAS else "identical prompts"
+    print(f"Agent test starting:")
+    print(f"  api={API_URL}")
+    print(f"  model={MODEL}")
+    print(f"  agents={persona_label}")
+    print(f"  max_rounds={MAX_ROUNDS}  headless={HEADLESS}")
     overall_t0 = time.time()
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=HEADLESS)
@@ -514,15 +567,16 @@ def run():
 
             for pid_idx in range(n_players):
                 # In this local game, both seats share the same UI/state.
-                # Switch the dashboard to that player.
-                # The select option label is the player's userName.
+                # Switch the dashboard to whichever player is acting.
                 player_name = page.evaluate(f"Game.localState.players[{pid_idx}].userName")
                 page.locator("#player-select").select_option(label=player_name)
                 time.sleep(0.2)
                 t0 = time.time()
                 actions = play_player_turn(page, pid_idx, round_n)
                 dt = time.time() - t0
-                print(f"  {player_name}: {[a['action'] for a in actions]}  ({dt:.1f}s)")
+                persona = "Builder" if pid_idx == 0 else "Disruptor"
+                tag = f"{player_name} ({persona})" if USE_PERSONAS else player_name
+                print(f"  {tag}: {[a['action'] for a in actions]}  ({dt:.1f}s)")
 
             # Resolve the round (executes for whichever player is dashboard-active,
             # which advances ALL players' workers since the engine resolves the

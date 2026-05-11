@@ -126,13 +126,16 @@ python tests/rulebook_test.py
 # Two-browser-context multiplayer over real WebRTC (31 assertions)
 python tests/multiplayer_test.py
 
-# LLM agent plays a full game via Ollama (smoke / integration)
+# Two LLM agents (Builder vs Disruptor) play a full game via vLLM
 python tests/agent_test.py
 ```
 
 All five expect the server at <http://localhost:7869/>. The multiplayer
 suite needs an active internet connection (the PeerJS public broker is
-reached via `wss://0.peerjs.com`).
+reached via `wss://0.peerjs.com`). The agent suite needs an
+OpenAI-compatible LLM endpoint — defaults to vLLM at `localhost:8000`
+serving `openai/gpt-oss-120b`. Override with `AGENT_API_URL`,
+`AGENT_MODEL`, `AGENT_PERSONAS=0` for identical-prompt mode.
 
 ## License
 
