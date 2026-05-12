@@ -36,6 +36,8 @@ Env:
     AGENT_HEADLESS       "0" to watch the browser (default: 1)
     AGENT_TURN_TIMEOUT   Per-LLM-call seconds (default: 600)
     AGENT_PERSONAS       "0" to disable personas (all seats identical prompt)
+    AGENT_REASONING_EFFORT  gpt-oss-style thinking depth: low | medium | high
+                            (default: medium)
 """
 import json
 import os
@@ -78,13 +80,21 @@ def log(name, ok, detail=""):
 # LLM PLUMBING
 # ─────────────────────────────────────────────────────────────────────
 
-def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=1500):
+REASONING_EFFORT = os.getenv("AGENT_REASONING_EFFORT", "medium")
+
+
+def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=2500):
     """Call the configured OpenAI-compatible endpoint. Returns content string.
 
     gpt-oss-120b and similar reasoning models put internal thought in a
     separate `reasoning` field. The actual answer is in `content`. We read
     `content` first and fall back to `reasoning` if content is empty (which
     happens if the model truncates before emitting the answer).
+
+    `reasoning_effort` toggles how many tokens the model spends on internal
+    chain-of-thought before emitting `content`. Higher = better play, more
+    tokens. Default "medium" matches /src/infra/vllm/presets/gpt-oss-120b
+    guidance for non-trivial reasoning tasks.
     """
     global LLM_CALLS
     last_err = None
@@ -99,6 +109,7 @@ def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=1500):
                 ],
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "reasoning_effort": REASONING_EFFORT,
                 "stream": False,
             }, timeout=LLM_TIMEOUT)
             r.raise_for_status()
@@ -592,7 +603,21 @@ def play_player_turn(page, player_idx, round_n):
             plan.get("card_id"), plan.get("sub_action"),
             avail_dict,
         )
-        chosen.append({"worker": n, "action": action, "error": err})
+        # Surface the card name on a play_card placement so the run log
+        # shows what's actually being played (helps spot persona drift —
+        # Disruptor playing utility cards vs real sabotage, etc.).
+        card_name = None
+        if action == "play_card" and plan.get("card_id") is not None:
+            card_name = page.evaluate("""
+                (cid) => {
+                    const s = Game.localState;
+                    const c = s.components.find(x => x.id === cid);
+                    if (!c) return null;
+                    const d = s.cardDefinitions.find(x => x.id === c.cardDetailsId);
+                    return d ? d.name : null;
+                }
+            """, plan["card_id"])
+        chosen.append({"worker": n, "action": action, "error": err, "card_name": card_name})
 
     # Record this round's chosen action list for the anti-deadlock hint
     # on the player's next turn. Capped to the 2 most recent.
@@ -702,7 +727,15 @@ def run():
                 dt = time.time() - t0
                 persona_label, _ = persona_for(pid_idx)
                 tag = f"{player_name} ({persona_label})" if USE_PERSONAS else player_name
-                print(f"  {tag}: {[a['action'] for a in actions]}  ({dt:.1f}s)")
+                # Stringify each action; for play_card, append the card name
+                # if we resolved one ("play_card:Back to Office Policy").
+                rendered = []
+                for a in actions:
+                    s = a["action"] or "?"
+                    if s == "play_card" and a.get("card_name"):
+                        s = f"play_card:{a['card_name']}"
+                    rendered.append(s)
+                print(f"  {tag}: {rendered}  ({dt:.1f}s)")
 
             # Resolve the round (executes for whichever player is dashboard-active,
             # which advances ALL players' workers since the engine resolves the
