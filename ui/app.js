@@ -258,6 +258,17 @@ function refreshData() {
     if (Game.currentGameState.pending_interactions && Game.currentGameState.pending_interactions.length > 0 && !Game._processingInteractions) {
         Game._processingInteractions = true;
         processPendingInteractions().finally(() => { Game._processingInteractions = false; });
+    } else {
+        // Defensive sync: if there are no pending interactions, the choice
+        // modal must not be open. startStrategyExecution has a 24s safety
+        // cap that clears pendingInteractions from state even if the
+        // promptInteraction promise chain never resolved — leaving the
+        // modal stuck visible. Hide it here so the next round's UI clicks
+        // aren't blocked by an orphaned modal.
+        const modal = document.getElementById('choice-modal');
+        if (modal && modal.style.display && modal.style.display !== 'none') {
+            modal.style.display = 'none';
+        }
     }
 
     // Auto-save to IndexedDB. Persist MP context too so a reload can

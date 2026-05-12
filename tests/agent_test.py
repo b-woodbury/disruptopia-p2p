@@ -345,9 +345,15 @@ def system_prompt_for(player_idx):
 
 
 def parse_decision(decision, total_workers):
-    """Normalize the LLM's response into placements + card_plays."""
+    """Normalize the LLM's response into placements + card_plays.
+
+    Always returns a list (possibly empty) so callers can iterate freely.
+    A non-dict input (LLM returned an array, null, or prose-only) is
+    treated as 'no usable placements' — the round-loop fallback will
+    cover every worker with raise_funds.
+    """
     if not isinstance(decision, dict):
-        return None
+        return []
     placements = decision.get("placements") or []
     card_plays = decision.get("card_plays") or []
     seen = set()
