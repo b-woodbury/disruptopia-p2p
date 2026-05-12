@@ -216,6 +216,19 @@ async function startStrategyExecution() {
     // Broadcast the execute trigger so other clients run the same resolution.
     broadcastAction({kind: 'execute_strategy', args: {}});
 
+    // Mark that round resolution is in flight. Test scaffolds (agent_test)
+    // wait for this to flip false before reading state — without it they
+    // can capture mid-resolution state and miss finishRound effects
+    // (debuff processing, end-of-game siphon, round-start penalty tiles).
+    Game.executingStrategy = true;
+    try {
+        await _runStrategyExecution();
+    } finally {
+        Game.executingStrategy = false;
+    }
+}
+
+async function _runStrategyExecution() {
     addLog("SYSTEM: Executing Quarterly Strategy...");
     const resolveResult = Engine.resolveEntireRound(Game.localState);
     const resolutionLog = resolveResult.resolution_log || [];

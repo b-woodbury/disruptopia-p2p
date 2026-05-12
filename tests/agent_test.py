@@ -647,20 +647,30 @@ def run_engine_audit(page, round_n, label="post-round"):
 
 def dump_resolution_log(page, round_n):
     """Pull the last resolution log (set by startStrategyExecution) and
-    flag any actions whose result contains an `error` field — those are
-    placements that *should* have done something but the engine refused.
+    flag any actions whose result_message looks like an engine rejection.
+
+    Keyword set is widened from the first pass — gpt-oss agents
+    routinely propose plays that fail at execution time (cards whose
+    NW gates aren't met, train_model with too few consecutive workers,
+    etc.). We want all of those surfaced, not just `insufficient` /
+    `cannot`.
     """
     data = page.evaluate("""
         () => {
             const r = Game.lastResolution;
             if (!r) return null;
+            // Lower-cased keyword substrings that signal a placement
+            // succeeded but its execution errored.
+            const keywords = [
+                'insufficient', 'error', 'not met', 'cannot',
+                'must be', 'max ', 'maximum', 'minimum', 'need ',
+                'too low', 'no valid', 'requirements not met',
+                'reached', 'already', 'no remaining',
+            ];
             const errs = [];
             for (const entry of (r.resolution_log || [])) {
-                // The engine writes result.error onto the wrapping action,
-                // not the resolution_log row directly. We surface anything
-                // suspicious in result_message.
                 const m = (entry.result_message || '').toLowerCase();
-                if (m.includes('insufficient') || m.includes('error') || m.includes('not met') || m.includes('cannot')) {
+                if (keywords.some(k => m.includes(k))) {
                     errs.push(`${entry.player_name} W${entry.worker_number} ${entry.action_type}: ${entry.result_message}`);
                 }
             }
