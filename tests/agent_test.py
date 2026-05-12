@@ -78,7 +78,7 @@ def log(name, ok, detail=""):
 # LLM PLUMBING
 # ─────────────────────────────────────────────────────────────────────
 
-def ask_llm(system, user, max_retries=2, temperature=0.3, max_tokens=1500):
+def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=1500):
     """Call the configured OpenAI-compatible endpoint. Returns content string.
 
     gpt-oss-120b and similar reasoning models put internal thought in a
@@ -533,15 +533,44 @@ def force_close_choice_modal(page):
 # ROUND LOOP
 # ─────────────────────────────────────────────────────────────────────
 
+TURN_HISTORY = {}   # player_idx -> [most-recent first, capped to 2]
+
+
 def play_player_turn(page, player_idx, round_n):
     """Ask the LLM for placements, execute them. Returns chosen actions list."""
     snap = snapshot_for_llm(page, player_idx)
     pid = snap["me"]["id"]
     total_workers = snap["me"]["total_workers"]
 
+    # Tempo nudge: how much game time is left, and where the player is on
+    # the V7 race. The game ends after the round any player hits V7 OR at
+    # the round cap. Anything below V_expected at this round is "behind."
+    max_rounds = snap.get("max_rounds", MAX_ROUNDS)
+    cur_model = snap["me"]["model"]
+    # Rough par: V1 by R2, V2 by R3, V3 by R5, V4 by R6, V7 by R8.
+    par_by_round = {1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 5, 8: 7}
+    par = par_by_round.get(round_n, 0)
+    tempo_line = (
+        f"Round {round_n}/{max_rounds}. Game ends after round {max_rounds} OR "
+        f"the round any player hits Model V7. You are at V{cur_model}; "
+        f"the par for this round is V{par}. "
+    )
+    if cur_model < par:
+        tempo_line += f"You're {par - cur_model} model versions BEHIND par — every wasted round is a loss."
+
+    # Anti-deadlock: replay the last 1-2 turns and call out repetition.
+    history = TURN_HISTORY.get(player_idx, [])
+    history_line = ""
+    if history:
+        last_two = ", ".join(f"[{', '.join(h)}]" for h in history)
+        history_line = f"\nYour last {len(history)} round(s) placements (most recent first): {last_two}."
+        if len(history) >= 2 and history[0] == history[1]:
+            history_line += " You played the IDENTICAL sequence twice. Pick a different action this round or justify why the same sequence is still optimal."
+
     sys_prompt = system_prompt_for(player_idx)
     user_msg = (
-        f"Round {round_n}. Your state:\n"
+        f"{tempo_line}{history_line}\n"
+        f"Your state:\n"
         f"```json\n{json.dumps(snap, indent=2)}\n```\n"
         f"Return the JSON strategy now."
     )
@@ -564,6 +593,12 @@ def play_player_turn(page, player_idx, round_n):
             avail_dict,
         )
         chosen.append({"worker": n, "action": action, "error": err})
+
+    # Record this round's chosen action list for the anti-deadlock hint
+    # on the player's next turn. Capped to the 2 most recent.
+    history = TURN_HISTORY.setdefault(player_idx, [])
+    history.insert(0, [a["action"] for a in chosen if a["action"]])
+    del history[2:]
     return chosen
 
 
