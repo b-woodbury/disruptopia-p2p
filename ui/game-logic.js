@@ -219,6 +219,9 @@ async function startStrategyExecution() {
     addLog("SYSTEM: Executing Quarterly Strategy...");
     const resolveResult = Engine.resolveEntireRound(Game.localState);
     const resolutionLog = resolveResult.resolution_log || [];
+    // Stash the resolution result so test scaffolds (agent_test) can pull
+    // per-round resolution logs for engine-invariant auditing.
+    Game.lastResolution = resolveResult;
     addLog(`SYSTEM: ${resolutionLog.length} actions resolved.`);
 
     if (resolutionLog.length > 0) {

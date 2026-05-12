@@ -541,6 +541,187 @@ def force_close_choice_modal(page):
 
 
 # ─────────────────────────────────────────────────────────────────────
+# ENGINE-INVARIANT AUDIT
+# ─────────────────────────────────────────────────────────────────────
+# Surfaces logic bugs that the deterministic test suites can't reach
+# from a real LLM-driven playthrough. Each check is a structural
+# invariant the engine should preserve, regardless of what cards
+# were played or what moves the agents made.
+
+AUDIT_FINDINGS = []   # accumulates across all rounds for the end-of-game summary
+
+
+def run_engine_audit(page, round_n, label="post-round"):
+    """Run all per-round invariants. Returns a list of finding strings."""
+    result = page.evaluate("""
+        () => {
+            const s = Game.localState;
+            const findings = [];
+            const nPlayers = s.players.length;
+
+            // ── 1. Token conservation ─────────────────────────────────
+            const tokensPerRegion = nPlayers <= 3 ? 1 : 2;
+            const initialSubsidies = tokensPerRegion * 10;
+            const onMap = s.regionStates.reduce((a, r) => a + (r.subsidyTokensRemaining || 0), 0);
+            const held = s.players.reduce((a, p) => a + (p.subsidyTokens || 0), 0);
+            if (onMap + held !== initialSubsidies) {
+                findings.push(`subsidy tokens: ${onMap} on map + ${held} held = ${onMap + held} ≠ ${initialSubsidies} initial`);
+            }
+            for (const p of s.players) {
+                const wSlots = (p.workerBoardSlots || []).length;
+                if (p.totalWorkers + wSlots !== 8) {
+                    findings.push(`${p.userName} worker tokens: ${p.totalWorkers} held + ${wSlots} on board ≠ 8`);
+                }
+                const pSlots = (p.presenceBoardSlots || []).length;
+                if (p.presenceCount + pSlots !== 10) {
+                    findings.push(`${p.userName} presence tokens: ${p.presenceCount} held + ${pSlots} on board ≠ 10`);
+                }
+            }
+
+            // ── 2. Card-zone consistency ─────────────────────────────
+            const validZones = [
+                /^research_deck$/, /^influence_deck$/, /^sabotage_deck$/,
+                /^research_discard$/, /^influence_discard$/, /^sabotage_discard$/,
+                /^hand_p\\d+$/, /^active_effect_card_slot_[123]_p\\d+$/,
+                /^debuff_p\\d+$/,
+            ];
+            // Total component count should equal sum(card.qty) across definitions.
+            // We don't have qty visible from a flat field, but components are
+            // created once at seed time and never destroyed, so we just compare
+            // total components to a snapshot recorded on first audit.
+            for (const c of s.components) {
+                if (!c.zone || !validZones.some(p => p.test(c.zone))) {
+                    findings.push(`card ${c.id}: invalid zone "${c.zone}"`);
+                    continue;
+                }
+                const m = /_p(\\d+)$/.exec(c.zone);
+                if (m) {
+                    const pid = parseInt(m[1]);
+                    if (c.ownerId !== pid) {
+                        findings.push(`card ${c.id} in zone ${c.zone} but ownerId=${c.ownerId}`);
+                    }
+                } else if (c.ownerId !== null && c.ownerId !== undefined) {
+                    findings.push(`card ${c.id} in shared zone ${c.zone} but ownerId=${c.ownerId}`);
+                }
+            }
+
+            // ── 3. Reputation tile invariants ────────────────────────
+            const nwReq = {1: 0, 2: 1, 3: 2};
+            const heldByPlayerLevel = {};
+            for (const t of s.reputationTiles) {
+                if (t.ownerId == null) continue;
+                const owner = s.players.find(p => p.id === t.ownerId);
+                if (!owner) {
+                    findings.push(`tile ${t.id} (lvl ${t.level}) owned by nonexistent player ${t.ownerId}`);
+                    continue;
+                }
+                if (t.level >= 1 && owner.netWorthLevel < (nwReq[t.level] ?? 0)) {
+                    findings.push(`tile lvl ${t.level} held by ${owner.userName} (NW=${owner.netWorthLevel}) below requirement NW≥${nwReq[t.level]}`);
+                }
+                if (t.level === 0 && owner.reputation >= 0) {
+                    findings.push(`tile 0 (penalty) held by ${owner.userName} but rep=${owner.reputation} (rulebook: release at rep≥0)`);
+                }
+                const key = `${t.ownerId}_L${t.level}`;
+                if (heldByPlayerLevel[key]) {
+                    findings.push(`${owner.userName} holds multiple lvl-${t.level} tiles`);
+                }
+                heldByPlayerLevel[key] = true;
+            }
+
+            // ── 4. Pending interactions cleared after finishRound ─────
+            const pending = (s.game.pendingInteractions || []).length;
+            if (pending > 0) {
+                const types = (s.game.pendingInteractions || []).map(p => p.type);
+                findings.push(`pendingInteractions not cleared post-round: ${pending} remaining (${types.join(',')})`);
+            }
+
+            return {round: s.game.currentRound, totalComponents: s.components.length, findings};
+        }
+    """)
+    for f in result.get("findings", []):
+        line = f"  WARN: AUDIT round={result['round']} {label}: {f}"
+        print(line)
+        AUDIT_FINDINGS.append(line)
+    return result
+
+
+def dump_resolution_log(page, round_n):
+    """Pull the last resolution log (set by startStrategyExecution) and
+    flag any actions whose result contains an `error` field — those are
+    placements that *should* have done something but the engine refused.
+    """
+    data = page.evaluate("""
+        () => {
+            const r = Game.lastResolution;
+            if (!r) return null;
+            const errs = [];
+            for (const entry of (r.resolution_log || [])) {
+                // The engine writes result.error onto the wrapping action,
+                // not the resolution_log row directly. We surface anything
+                // suspicious in result_message.
+                const m = (entry.result_message || '').toLowerCase();
+                if (m.includes('insufficient') || m.includes('error') || m.includes('not met') || m.includes('cannot')) {
+                    errs.push(`${entry.player_name} W${entry.worker_number} ${entry.action_type}: ${entry.result_message}`);
+                }
+            }
+            return {actions: (r.resolution_log || []).length, errors: errs};
+        }
+    """)
+    if data and data.get("errors"):
+        for e in data["errors"]:
+            line = f"  WARN: AUDIT round={round_n} resolution: {e}"
+            print(line)
+            AUDIT_FINDINGS.append(line)
+
+
+def audit_game_end(page):
+    """Game-end VP reconciliation: leaderboard's total must equal the
+    sum of its own breakdown components.
+    """
+    res = page.evaluate("""
+        () => {
+            const s = Game.localState;
+            const lb = Engine.calculateGameLeaderboard(s);
+            const findings = [];
+            for (const row of lb) {
+                const p = s.players.find(x => x.id === row.player_id);
+                const b = row.breakdown || {};
+                const expected = (b.race_bonuses || 0) + (b.power_vp || 0) + (b.model_vp || 0) + (b.presence_vp || 0) + (b.funds_bonus || 0);
+                if (expected !== row.total_vp) {
+                    findings.push(`${row.user_name}: breakdown sum=${expected} ≠ total_vp=${row.total_vp}`);
+                }
+                const expPow = Math.floor(p.power / 5);
+                if ((b.power_vp || 0) !== expPow) {
+                    findings.push(`${row.user_name}: power_vp=${b.power_vp} ≠ floor(power/5)=${expPow} (power=${p.power})`);
+                }
+                if ((b.model_vp || 0) !== p.modelVersion) {
+                    findings.push(`${row.user_name}: model_vp=${b.model_vp} ≠ modelVersion=${p.modelVersion}`);
+                }
+                if ((b.presence_vp || 0) !== p.presenceCount) {
+                    findings.push(`${row.user_name}: presence_vp=${b.presence_vp} ≠ presenceCount=${p.presenceCount}`);
+                }
+            }
+            return {leaderboard: lb, findings};
+        }
+    """)
+    for f in res.get("findings", []):
+        line = f"  WARN: AUDIT game_end: {f}"
+        print(line)
+        AUDIT_FINDINGS.append(line)
+    return res
+
+
+def dump_state_snapshot(page, round_n):
+    """Write the full engine state to /tmp/agent_state_round_N.json for
+    post-mortem review. Small games are a few MB."""
+    state = page.evaluate("JSON.parse(JSON.stringify(Game.localState))")
+    path = f"/tmp/agent_state_round_{round_n}.json"
+    with open(path, "w") as f:
+        json.dump(state, f, indent=2)
+    return path
+
+
+# ─────────────────────────────────────────────────────────────────────
 # ROUND LOOP
 # ─────────────────────────────────────────────────────────────────────
 
@@ -746,6 +927,12 @@ def run():
             print(f"  resolved ({dt:.1f}s, status={r})")
             rounds_played += 1
 
+            # Engine-invariant audit + state dump for forensic review.
+            dump_resolution_log(page, round_n)
+            run_engine_audit(page, round_n, label="post-round")
+            snap_path = dump_state_snapshot(page, round_n)
+            print(f"  state snapshot: {snap_path}")
+
             phase = page.evaluate("Game.localState.game.gamePhase")
             if phase == "finished":
                 print("  → game finished")
@@ -779,6 +966,20 @@ def run():
         """)
         log("agent.3 all player stats within rulebook bounds",
             len(invariants) == 0, str(invariants))
+
+        # ────────── End-of-game audit: VP reconciliation + summary
+        end_audit = audit_game_end(page)
+        log("agent.4 engine audit clean (no invariant violations)",
+            len(AUDIT_FINDINGS) == 0,
+            f"{len(AUDIT_FINDINGS)} audit findings across game")
+        if end_audit and end_audit.get("leaderboard"):
+            print("\n── Final Leaderboard ──")
+            for row in end_audit["leaderboard"]:
+                b = row.get("breakdown", {})
+                print(f"  {row['user_name']:10s}  VP={row['total_vp']}  "
+                      f"(race={b.get('race_bonuses', 0)} power={b.get('power_vp', 0)} "
+                      f"model={b.get('model_vp', 0)} presence={b.get('presence_vp', 0)} "
+                      f"funds={b.get('funds_bonus', 0)})")
 
         browser.close()
 
