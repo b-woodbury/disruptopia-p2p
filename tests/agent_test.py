@@ -1,10 +1,15 @@
 """
 Disruptopia P2P - LLM agent end-to-end test.
 
-Drives a full 2-player game where each seat is played by an independent
-LLM agent. Both seats hit the same vLLM-hosted model (gpt-oss-120b by
-default) but with distinct personas — Player 1 is a tech-builder, Player
-2 is a sabotage-heavy disruptor — and separate decision contexts.
+Drives a full 4-player game where each seat is played by an independent
+LLM agent. All four seats hit the same vLLM-hosted model
+(gpt-oss-120b by default) but receive distinct persona prompts and
+independent decision contexts:
+
+    Player 1 — Builder       (model-version rusher)
+    Player 2 — Disruptor     (sabotage card focus)
+    Player 3 — Globalist     (presence + subsidy scaling)
+    Player 4 — Economist     (raise funds + Billionaire race)
 
 The agents read game state via page.evaluate(), propose worker placements
 and card plays as JSON, execute them through the browser, then exercise
@@ -27,9 +32,10 @@ Env:
     AGENT_API_URL        OpenAI-compatible endpoint (default vLLM at :8000)
     AGENT_MODEL          Model id (default: openai/gpt-oss-120b)
     AGENT_MAX_ROUNDS     Hard cap rounds (default: 8)
+    AGENT_PLAYERS        Player count, 2-5 (default: 4)
     AGENT_HEADLESS       "0" to watch the browser (default: 1)
     AGENT_TURN_TIMEOUT   Per-LLM-call seconds (default: 600)
-    AGENT_PERSONAS       "0" to disable personas (both seats identical prompt)
+    AGENT_PERSONAS       "0" to disable personas (all seats identical prompt)
 """
 import json
 import os
@@ -45,6 +51,7 @@ BASE_URL = "http://localhost:7869"
 API_URL = os.getenv("AGENT_API_URL", "http://localhost:8000/v1/chat/completions")
 MODEL = os.getenv("AGENT_MODEL", "openai/gpt-oss-120b")
 MAX_ROUNDS = int(os.getenv("AGENT_MAX_ROUNDS", "8"))
+N_PLAYERS = max(2, min(5, int(os.getenv("AGENT_PLAYERS", "4"))))
 HEADLESS = os.getenv("AGENT_HEADLESS", "1") != "0"
 LLM_TIMEOUT = int(os.getenv("AGENT_TURN_TIMEOUT", "600"))
 USE_PERSONAS = os.getenv("AGENT_PERSONAS", "1") != "0"
@@ -301,19 +308,40 @@ Rules for placements:
 
 PERSONA_BUILDER = """
 Your style: TECH BUILDER. Race to Model Version 7 as fast as possible to end the game with a strong board.
-Priorities: buy_chips → train_model → increase_net_worth → scale_presence. Use research cards aggressively. Avoid sabotage cards unless you're behind."""
+Priorities: buy_chips → train_model → increase_net_worth → scale_presence. Use research cards aggressively (New GPU Tech, Sweatshop, Whitepaper, Hackathon, Burn Out). Avoid sabotage unless you're behind."""
 
 PERSONA_DISRUPTOR = """
 Your style: SABOTAGE DISRUPTOR. Stack power, raise funds, and use sabotage cards to slow competitors.
-Priorities: raise_funds, marketing, scale_presence to share borders, then play sabotage cards on shared-presence opponents. Don't ignore training, but never lead the model race — let competitors race so you can profit from interference."""
+Priorities: raise_funds, marketing, scale_presence to SHARE borders, then play sabotage cards on shared-presence opponents (Back to Office, CEO Twitter Rampage, Fake Celebrity Death, Phishing Scam, Ransomware, Squeeze Out). Don't lead the model race — let opponents race so you can profit from interference."""
 
-DEFAULT_SYSTEM = BASE_SYSTEM
+PERSONA_GLOBALIST = """
+Your style: GLOBALIST EXPANSIONIST. Maximize regions on the World Map and harvest subsidy tokens for income.
+Priorities: scale_presence aggressively (use Debt-Fueled Market Expansion, Celebrity Sponsor World Tour), increase_net_worth quickly so you can hold 6+ regions, then 10. Power matters less than presence — 1VP per region adds up fast. Play Bribe the UN / Make We Care About Your Community Ads for rep when you have wide presence."""
+
+PERSONA_ECONOMIST = """
+Your style: WEALTH ECONOMIST. Race to Billionaire (Net Worth 2) and stockpile Personal Funds for the highest-funds VP bonus (3VP in 2p, 3+2+1 in 4-5p).
+Priorities: raise_funds, marketing for rep, increase_net_worth as soon as money allows. Use Influencer Marketing, VC Investor, Layoffs, Management Restructuring to grow funds fast. Train the model just enough to qualify for NW jumps. Subsidy tokens are worth $2 each at Billionaire so claim regions opportunistically."""
+
+PERSONAS = [
+    ("Builder",    PERSONA_BUILDER),
+    ("Disruptor",  PERSONA_DISRUPTOR),
+    ("Globalist",  PERSONA_GLOBALIST),
+    ("Economist",  PERSONA_ECONOMIST),
+]
+
+
+def persona_for(player_idx):
+    """Return (label, prompt_addition) for seat player_idx (0-based)."""
+    if not USE_PERSONAS:
+        return (f"Player {player_idx+1}", "")
+    return PERSONAS[player_idx % len(PERSONAS)]
 
 
 def system_prompt_for(player_idx):
     if not USE_PERSONAS:
         return BASE_SYSTEM
-    return BASE_SYSTEM + (PERSONA_BUILDER if player_idx == 0 else PERSONA_DISRUPTOR)
+    _, persona_text = persona_for(player_idx)
+    return BASE_SYSTEM + persona_text
 
 
 def parse_decision(decision, total_workers):
@@ -418,12 +446,17 @@ def place_with_fallback(page, player_id, worker_n, action, region, card_id, sub_
 # ─────────────────────────────────────────────────────────────────────
 
 def drain_modals(page, max_seconds=60):
-    """Click through any visible modal — picks reasonable defaults."""
+    """Click through any visible modal — picks reasonable defaults.
+
+    Handles a wedge case in `choose_regions` (celebrity_tour): the modal
+    has multiple region buttons and a separate Done button. A naïve
+    "click first visible button" loop just toggles a region selection
+    without closing the modal. We detect Done explicitly and use it.
+    """
     start = time.time()
     while time.time() - start < max_seconds:
         # Forced discard prompt
         if page.locator("#discard-confirm-btn:visible").count() > 0:
-            # Click a hand card to select for discard
             hand_card = page.locator("#player-hand > div").first
             if hand_card.count() > 0:
                 hand_card.click()
@@ -431,14 +464,32 @@ def drain_modals(page, max_seconds=60):
             page.locator("#discard-confirm-btn:visible").first.click()
             time.sleep(0.2)
             continue
+
         # Generic choice modal
         choice_modal = page.locator("#choice-modal")
         if choice_modal.count() > 0 and choice_modal.is_visible():
-            btn = page.locator("#choice-modal button:visible").first
+            done = page.locator("#choice-modal button:visible:has-text('Done')")
+            if done.count() > 0:
+                # choose_regions style: tap one region first (so Done has a
+                # non-empty selection and resolves with regions), then Done.
+                pick = page.locator("#choice-modal button:visible:not(:has-text('Done'))")
+                for i in range(pick.count()):
+                    b = pick.nth(i)
+                    if not b.is_disabled():
+                        b.click()
+                        time.sleep(0.1)
+                        break
+                if choice_modal.is_visible():
+                    done.first.click()
+                time.sleep(0.2)
+                continue
+            # Single-click modal (squeeze, region attack, steal card)
+            btn = page.locator("#choice-modal button:visible:not([disabled])").first
             if btn.count() > 0:
                 btn.click()
                 time.sleep(0.2)
                 continue
+
         # Drawn-card chooser (unethical_data)
         drawn_modal = page.locator("#drawn-cards-modal:visible")
         if drawn_modal.count() > 0:
@@ -457,12 +508,19 @@ def drain_modals(page, max_seconds=60):
                 continue
         # Nothing visible — done
         time.sleep(0.15)
-        # If pending interactions remain, keep waiting
         pending = page.evaluate("(Game.localState.game.pendingInteractions || []).length")
         executing = page.evaluate("Game.executingStrategy")
         if pending == 0 and not executing:
             break
     return time.time() - start
+
+
+def force_close_choice_modal(page):
+    """Last-resort modal hider — used if drain_modals fails to close it."""
+    page.evaluate("""
+        const m = document.getElementById('choice-modal');
+        if (m && m.style.display !== 'none') m.style.display = 'none';
+    """)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -508,11 +566,29 @@ def execute_round(page):
     btn = page.locator("#btn-execute-strategy:visible")
     if btn.count() == 0:
         return "no_button"
-    btn.first.click()
-    # Wait for resolution to start, then drain
+
+    # A modal can be open BEFORE Execute Strategy if the previous round
+    # left a pending interaction that fired when refreshData ran. Drain
+    # first; if it persists, dump diagnostics and force-close it.
+    if page.locator("#choice-modal").is_visible():
+        pending = page.evaluate("(Game.localState.game.pendingInteractions || []).map(p => p.type)")
+        round_n = page.evaluate("Game.localState.game.currentRound")
+        print(f"  WARN: choice-modal open before execute (round={round_n}, pending={pending})")
+        drain_modals(page, max_seconds=15)
+        if page.locator("#choice-modal").is_visible():
+            print("  WARN: drain_modals could not close the modal; force-hiding it.")
+            force_close_choice_modal(page)
+
+    try:
+        btn.first.click(timeout=10000)
+    except Exception as e:
+        # If still blocked, force-hide and retry once.
+        force_close_choice_modal(page)
+        time.sleep(0.3)
+        btn.first.click(timeout=10000)
+
     time.sleep(0.6)
     drain_modals(page, max_seconds=90)
-    # Wait until executingStrategy flips off
     for _ in range(120):
         executing = page.evaluate("Game.executingStrategy")
         if not executing:
@@ -522,28 +598,36 @@ def execute_round(page):
     return "ok"
 
 
+PLAYER_NAMES = ["Alice", "Bob", "Cara", "Dan", "Eve"]
+DEFAULT_REGIONS = {2: [1, 6], 3: [1, 4, 8], 4: [1, 3, 6, 9], 5: [1, 3, 5, 7, 9]}
+
+
 def fresh_game(page):
     page.goto(BASE_URL, wait_until="networkidle")
     time.sleep(0.3)
     page.evaluate("indexedDB.deleteDatabase('disruptopia_p2p')")
     page.reload(wait_until="networkidle")
     time.sleep(0.4)
-    page.locator("#setup-player-count").select_option("2")
+    page.locator("#setup-player-count").select_option(str(N_PLAYERS))
     time.sleep(0.2)
-    page.locator("#setup-name-0").fill("Alice")
-    page.locator("#setup-name-1").fill("Bob")
-    page.locator("#setup-region-0").select_option("1")
-    page.locator("#setup-region-1").select_option("6")
+    regions = DEFAULT_REGIONS[N_PLAYERS]
+    for i in range(N_PLAYERS):
+        page.locator(f"#setup-name-{i}").fill(PLAYER_NAMES[i])
+        page.locator(f"#setup-region-{i}").select_option(str(regions[i]))
     page.click("text=Launch Game")
     time.sleep(0.8)
 
 
 def run():
-    persona_label = "two personas (Builder vs Disruptor)" if USE_PERSONAS else "identical prompts"
+    if USE_PERSONAS:
+        persona_labels = ", ".join(persona_for(i)[0] for i in range(N_PLAYERS))
+        persona_summary = f"{N_PLAYERS} personas ({persona_labels})"
+    else:
+        persona_summary = f"{N_PLAYERS} agents (identical prompts)"
     print(f"Agent test starting:")
     print(f"  api={API_URL}")
     print(f"  model={MODEL}")
-    print(f"  agents={persona_label}")
+    print(f"  agents={persona_summary}")
     print(f"  max_rounds={MAX_ROUNDS}  headless={HEADLESS}")
     overall_t0 = time.time()
     with sync_playwright() as pw:
@@ -555,7 +639,8 @@ def run():
 
         fresh_game(page)
         n_players = page.evaluate("Game.localState.players.length")
-        log("setup.1 game launched with 2 players", n_players == 2, str(n_players))
+        log(f"setup.1 game launched with {N_PLAYERS} players",
+            n_players == N_PLAYERS, f"got {n_players}")
 
         rounds_played = 0
         for round_n in range(1, MAX_ROUNDS + 1):
@@ -566,7 +651,7 @@ def run():
                 break
 
             for pid_idx in range(n_players):
-                # In this local game, both seats share the same UI/state.
+                # In this local game, all seats share the same UI/state.
                 # Switch the dashboard to whichever player is acting.
                 player_name = page.evaluate(f"Game.localState.players[{pid_idx}].userName")
                 page.locator("#player-select").select_option(label=player_name)
@@ -574,8 +659,8 @@ def run():
                 t0 = time.time()
                 actions = play_player_turn(page, pid_idx, round_n)
                 dt = time.time() - t0
-                persona = "Builder" if pid_idx == 0 else "Disruptor"
-                tag = f"{player_name} ({persona})" if USE_PERSONAS else player_name
+                persona_label, _ = persona_for(pid_idx)
+                tag = f"{player_name} ({persona_label})" if USE_PERSONAS else player_name
                 print(f"  {tag}: {[a['action'] for a in actions]}  ({dt:.1f}s)")
 
             # Resolve the round (executes for whichever player is dashboard-active,
