@@ -466,11 +466,20 @@ const Engine = {
             presence_regions: [...player.presenceRegions],
             subsidy_tokens: player.subsidyTokens,
             income: player.income,
+            // power evolves through marketing / train_model / buy_chips-with-BCE
+            // so validators that gate on power (patent_troll: ≥5, phishing: ≥10)
+            // see the right value for later-worker placements in a multi-action
+            // turn.
+            power: player.power,
             // Projected board slots, so the next recruit/scale cost reflects
             // multi-action sequences and any prior losses.
             worker_board_slots: [...(player.workerBoardSlots || [])],
             presence_board_slots: [...(player.presenceBoardSlots || [])],
         };
+        // Big Compute Energy adds +N power per compute increase this round
+        // (set on the player when the card is played; persists for the round).
+        const computePowerBonus = player.tempComputeGainPowerBonus || 0;
+        const hypeActive = !!player.tempTrainModelPerRegionPowerBonus;
         const placements = state.workerPlacements
             .filter(p => p.playerId === playerId && p.workerNumber < upToWorkerNumber)
             .sort((a, b) => a.workerNumber - b.workerNumber);
@@ -490,11 +499,18 @@ const Engine = {
                     if (projected.corporate_funds >= finalCost && projected.net_worth_level >= reqNw) {
                         projected.corporate_funds -= finalCost;
                         projected.compute_level = nextLvl;
+                        // Big Compute Energy: +N power per compute increase this round.
+                        if (computePowerBonus > 0) {
+                            projected.power = this.clampPower(projected.power + computePowerBonus);
+                        }
                     }
                 }
             } else if (p.actionType === "marketing") {
                 const bonus = Config.MARKETING_BONUSES[projected.net_worth_level];
-                if (bonus) projected.reputation = Math.min(10, projected.reputation + bonus.reputation);
+                if (bonus) {
+                    projected.reputation = Math.min(10, projected.reputation + bonus.reputation);
+                    if (bonus.power) projected.power = this.clampPower(projected.power + bonus.power);
+                }
             } else if (p.actionType === "increase_net_worth") {
                 const nextNw = projected.net_worth_level + 1;
                 if (nextNw <= 2) {
@@ -545,6 +561,9 @@ const Engine = {
                     if (projected._trainAccum >= req && projected.compute_level >= nextV && projected.net_worth_level >= reqNw) {
                         projected.model_version = nextV;
                         projected._trainAccum = 0;
+                        // Each upgrade: +1 power per 2 regions (per per-region if Model Hype active).
+                        const pgain = hypeActive ? projected.presence_count : Math.floor(projected.presence_count / 2);
+                        projected.power = this.clampPower(projected.power + pgain);
                     }
                 }
             }
@@ -1121,6 +1140,12 @@ const Engine = {
     },
 
     _buildResultMessage(actionType, result, playerName, cardName) {
+        // Surface engine-side rejections (e.g. "Requirement not met: Power
+        // must be at least 5", "Insufficient Tech Workers. Need 2") so the
+        // resolution log + agent-test audit can flag them. Without this,
+        // failed card effects show as "Played {cardName}" or similar,
+        // silently masking real strategic mistakes / engine errors.
+        if (result && result.error) return result.error;
         if (actionType === "raise_funds") return `Siphoned $${result.total_siphoned || 0} to personal, drew $${result.total_drawn || 0} income`;
         if (actionType === "buy_chips") return `Upgraded Compute to Level ${result.new_level || '?'}`;
         if (actionType === "train_model") return `Trained Model to v${result.new_version || '?'}`;
