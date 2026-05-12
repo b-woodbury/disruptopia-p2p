@@ -110,6 +110,117 @@ function _countCompetitorOnlyPresence(state, playerId) {
 
 
 // ==========================================
+// CARD VALIDATORS (placement-time)
+// ==========================================
+// Rulebook p.12: "You must meet all card requirements at the time
+// that you play it." The engine historically only enforced this at
+// effect-resolution time, by which point the worker on play_card had
+// already been spent and (for isEffect:true cards) the active slot
+// occupant had already been displaced.
+//
+// CardValidators[slug] is called from Engine.validatePlayCard during
+// placement validation. It receives the projected player state (after
+// any prior worker placements this round) and should return:
+//   - null:        play is legal
+//   - {error: ""}: play violates a static requirement; reject placement
+//
+// Validators only check requirements that depend on the player's own
+// state (NW, presence, rep, power, model, compute, funds, workers).
+// Target-availability checks (shared presence, target has ≥N workers,
+// etc.) stay at effect-resolution time — they need other-player state
+// and rarely block placements in practice.
+
+function _checkNwForWorkerSlot(proj, addedWorkers) {
+    addedWorkers = addedWorkers || 1;
+    const nextNum = (proj.total_workers || 0) + addedWorkers;
+    if (nextNum >= 7 && proj.net_worth_level < 2) {
+        return {error: "Must be Billionaire for 7+ Tech Workers."};
+    }
+    if (nextNum >= 5 && proj.net_worth_level < 1) {
+        return {error: "Must be Millionaire for 5+ Tech Workers."};
+    }
+    return null;
+}
+
+function _checkNwForCompute(proj, addedLevels) {
+    addedLevels = addedLevels || 1;
+    const nextLevel = (proj.compute_level || 0) + addedLevels;
+    const req = (Config.COMPUTE_NET_WORTH_REQ || {})[nextLevel] || 0;
+    if (proj.net_worth_level < req) {
+        const names = {0: "Startup", 1: "Millionaire", 2: "Billionaire"};
+        return {error: `Must be ${names[req]} for Compute Level ${nextLevel}.`};
+    }
+    return null;
+}
+
+const CardValidators = {
+    // ── INFLUENCE ─────────────────────────────────────────────────
+    build_hq:        (s, pid, p) => p.presence_count < 2 ? {error: "Need presence in at least 2 regions."} : null,
+    corporate_espionage: (s, pid, p) => p.model_version < 3 ? {error: "Need Model Version 3+."} : null,
+    defense_contract:(s, pid, p) => p.model_version >= 5 ? {error: "Defense Contract requires Model Version < 5."} : null,
+    intern_program:  (s, pid, p) => p.presence_count < 2 ? {error: "Need presence in at least 2 regions."} : null,
+    debt_expansion:  (s, pid, p) => p.presence_count < 5 ? {error: "Need presence in at least 5 regions."} : null,
+    bribe_un:        (s, pid, p) => p.presence_count > 5 ? {error: "Bribe the UN requires presence in at most 5 regions."} : null,
+    court_autocrat:  (s, pid, p) => p.reputation < 1 ? {error: "Need at least 1 Reputation."} : null,
+    layoffs:         (s, pid, p) => p.total_workers <= 3 ? {error: "Cannot run Layoffs at minimum 3 Tech Workers (rulebook p.14)."} : null,
+    vc_investor:     (s, pid, p) => p.corporate_funds >= 10 ? {error: "VC Investor requires Corporate Funds < $10."} : null,
+
+    // ── RESEARCH ──────────────────────────────────────────────────
+    whitepaper:      (s, pid, p) => p.total_workers >= 8 ? {error: "Max workers reached."} : _checkNwForWorkerSlot(p),
+    spaghetti_code:  (s, pid, p) => p.total_workers >= 8 ? {error: "Max workers reached."} : _checkNwForWorkerSlot(p),
+    remote_work:     (s, pid, p) => p.total_workers >= 8 ? {error: "Max workers reached."} : _checkNwForWorkerSlot(p),
+    poach_engineers: (s, pid, p) => p.total_workers >= 8 ? {error: "Max workers reached."} : _checkNwForWorkerSlot(p),
+    recruiting_pipeline: (s, pid, p) => {
+        if (p.total_workers >= 7) return {error: "Cannot recruit 2 workers (max is 8)."};
+        // Both of the next 2 slots must be NW-accessible.
+        const e1 = _checkNwForWorkerSlot(p, 1); if (e1) return e1;
+        const e2 = _checkNwForWorkerSlot(p, 2); if (e2) return e2;
+        return null;
+    },
+    nerdy_optimization: (s, pid, p) => p.compute_level >= 7 ? null : _checkNwForCompute(p, 1),
+    powerpoint:      (s, pid, p) => {
+        if (p.reputation < -2) return {error: "Reputation too low (would clamp at -3 floor)."};
+        if (p.compute_level >= 7) return null;
+        return _checkNwForCompute(p, 1);
+    },
+    burn_out:        (s, pid, p) => {
+        if (p.compute_level > 4) return {error: "Burn Out requires Compute Level ≤ 4."};
+        if (p.total_workers <= 3) return {error: "Cannot lose a Tech Worker at minimum 3 (rulebook p.14)."};
+        for (let added = 1; added <= 2; added++) {
+            if (p.compute_level + added <= 7) {
+                const err = _checkNwForCompute(p, added);
+                if (err) return err;
+            }
+        }
+        return null;
+    },
+    sweatshop:       (s, pid, p) => p.reputation < -1 ? {error: "Reputation too low (would clamp at -3 floor)."} : null,
+    model_hype:      (s, pid, p) => p.presence_count > 7 ? {error: "Model Hype requires presence ≤ 7."} : null,
+    piggyback:       (s, pid, p) => _checkNwForCompute(p, 1),
+    hack_competitor_model: (s, pid, p) => {
+        if (p.corporate_funds < 4) return {error: "Hack Competitor Model needs $4."};
+        const nextV = (p.model_version || 0) + 1;
+        if (nextV > 7) return {error: "Maximum Model Version reached."};
+        if (p.compute_level < nextV) return {error: `Need Compute Level ${nextV}.`};
+        const nwReq = (Config.MODEL_NET_WORTH_REQ || {})[nextV] || 0;
+        if (p.net_worth_level < nwReq) {
+            const names = {0: "Startup", 1: "Millionaire", 2: "Billionaire"};
+            return {error: `Must be ${names[nwReq]} for Model Version ${nextV}.`};
+        }
+        return null;
+    },
+
+    // ── SABOTAGE ──────────────────────────────────────────────────
+    hack_toasters:   (s, pid, p) => p.model_version < 3 ? {error: "Hack Smart Toasters requires Model Version 3+."} : null,
+    patent_troll:    (s, pid, p) => p.power < 5 ? {error: "Patent Troll requires Power ≥ 5."} : null,
+    phishing_scam:   (s, pid, p) => p.power < 10 ? {error: "Phishing Scam requires Power ≥ 10."} : null,
+
+    // The remaining cards have no static requirements or only
+    // target-availability requirements (checked at effect time).
+};
+
+
+// ==========================================
 // CARD EFFECTS REGISTRY
 // ==========================================
 

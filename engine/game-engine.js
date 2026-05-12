@@ -648,14 +648,33 @@ const Engine = {
         return null;
     },
 
-    validateActionRequirements(state, playerId, actionType, workerNumber, targetRegion) {
+    validateActionRequirements(state, playerId, actionType, workerNumber, targetRegion, targetCardId) {
         const projected = this.getProjectedPlayerState(state, playerId, workerNumber);
         if (actionType === "buy_chips") return this.validateBuyChips(state, playerId, projected);
         if (actionType === "recruit") return this.validateRecruit(state, playerId, projected);
         if (actionType === "train_model") return this.validateTrainModel(state, playerId, projected);
         if (actionType === "increase_net_worth") return this.validateIncreaseNetWorth(state, playerId, projected);
         if (actionType === "scale_presence") return this.validateScalePresence(state, playerId, projected, targetRegion);
+        if (actionType === "play_card") return this.validatePlayCard(state, playerId, projected, targetCardId);
         return null;
+    },
+
+    // Rulebook p.12: "You must meet all card requirements at the time
+    // that you play it." Static (player-stat) requirements are checked
+    // here so the engine refuses the placement rather than consuming
+    // the worker and discarding state mid-effect.
+    validatePlayCard(state, playerId, projected, cardId) {
+        if (cardId == null) return null;  // Card-less placement is rejected later in playCard.
+        const card = state.components.find(c => c.id === cardId);
+        if (!card) return {error: "Card not found."};
+        if (card.ownerId !== playerId && !card.zone.startsWith("active_effect_card_slot_")) {
+            return {error: "Card not owned by player."};
+        }
+        const def = state.cardDefinitions.find(d => d.id === card.cardDetailsId);
+        if (!def || !def.effectSlug) return null;
+        const validator = (typeof CardValidators !== 'undefined') ? CardValidators[def.effectSlug] : null;
+        if (!validator) return null;  // No static requirements registered → defer to effect-time check.
+        return validator(state, playerId, projected);
     },
 
     // ==========================================
@@ -670,7 +689,7 @@ const Engine = {
         }
         const countErr = this.validatePlacementCount(state, playerId, actionType, workerNumber);
         if (countErr) return countErr;
-        const reqErr = this.validateActionRequirements(state, playerId, actionType, workerNumber, targetRegion);
+        const reqErr = this.validateActionRequirements(state, playerId, actionType, workerNumber, targetRegion, targetCardId);
         if (reqErr) return reqErr;
 
         const existing = state.workerPlacements.find(
