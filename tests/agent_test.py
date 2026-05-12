@@ -427,16 +427,36 @@ def try_place(page, player_id, worker_n, action, region, card_id, sub_action):
 
 
 def place_with_fallback(page, player_id, worker_n, action, region, card_id, sub_action, avail):
-    """Try the LLM's choice, falling back through known-safe actions on error."""
+    """Try the LLM's choice, falling back through known-safe actions on error.
+
+    Returns (final_action, rejection):
+      final_action: the action that ended up placed (or None if all failed)
+      rejection: None if the LLM's original choice succeeded; otherwise a
+                 dict {original_action, card_name, reason} so the next
+                 turn's prompt can feed the rejection back to the agent.
+    """
+    rejection = None
     if action and (avail.get(action, {}).get("available")):
         ok, msg = try_place(page, player_id, worker_n, action, region, card_id, sub_action)
         if ok:
             return action, None
+        # Original failed — capture reason for feedback.
+        card_name = None
+        if action == "play_card" and card_id is not None:
+            card_name = page.evaluate("""
+                (cid) => {
+                    const s = Game.localState;
+                    const c = s.components.find(x => x.id === cid);
+                    if (!c) return null;
+                    const d = s.cardDefinitions.find(x => x.id === c.cardDetailsId);
+                    return d ? d.name : null;
+                }
+            """, card_id)
+        rejection = {"original_action": action, "card_name": card_name, "reason": msg}
     # Fallbacks
     for fb in FALLBACK_ORDER:
         if not avail.get(fb, {}).get("available"):
             continue
-        # Pick a region for scale_presence
         fb_region = None
         if fb == "scale_presence":
             neighbors = page.evaluate("""
@@ -454,8 +474,8 @@ def place_with_fallback(page, player_id, worker_n, action, region, card_id, sub_
                 continue
         ok, msg = try_place(page, player_id, worker_n, fb, fb_region, None, None)
         if ok:
-            return fb, None
-    return None, "no valid action found"
+            return fb, rejection
+    return None, rejection or {"original_action": action, "card_name": None, "reason": "no valid action found"}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -472,15 +492,30 @@ def drain_modals(page, max_seconds=60):
     """
     start = time.time()
     while time.time() - start < max_seconds:
-        # Forced discard prompt
-        if page.locator("#discard-confirm-btn:visible").count() > 0:
-            hand_card = page.locator("#player-hand > div").first
-            if hand_card.count() > 0:
-                hand_card.click()
-                time.sleep(0.1)
-            page.locator("#discard-confirm-btn:visible").first.click()
-            time.sleep(0.2)
-            continue
+        # Forced discard prompt. promptDiscardModal (ui/modals.js) uses
+        # the same #choice-modal but with a two-step UX: click a card in
+        # #modal-options to bring up the preview + #discard-confirm-btn,
+        # then click DISCARD. Detect by title text + the card grid.
+        modal = page.locator("#choice-modal")
+        if modal.count() > 0 and modal.is_visible():
+            title = page.locator("#modal-title").inner_text() if page.locator("#modal-title").count() > 0 else ""
+            if "Hand Limit Exceeded" in title:
+                # If preview is already open (we already clicked a card), the
+                # DISCARD button is visible — click it.
+                if page.locator("#discard-confirm-btn:visible").count() > 0:
+                    page.locator("#discard-confirm-btn:visible").first.click()
+                    time.sleep(0.3)
+                    continue
+                # Otherwise click the first non-intern card in the grid.
+                cards = page.locator("#modal-options > div[style*='cursor: pointer']")
+                if cards.count() > 0:
+                    cards.first.click()
+                    time.sleep(0.15)
+                    continue
+                # No clickable cards (all intern-protected) — bail out via force-hide.
+                force_close_choice_modal(page)
+                time.sleep(0.2)
+                continue
 
         # Generic choice modal
         choice_modal = page.locator("#choice-modal")
@@ -668,15 +703,36 @@ def dump_resolution_log(page, round_n):
                 'reached', 'already', 'no remaining',
             ];
             const errs = [];
+            const perPlayer = {};   // player_id → [{action, card, reason}]
             for (const entry of (r.resolution_log || [])) {
                 const m = (entry.result_message || '').toLowerCase();
                 if (keywords.some(k => m.includes(k))) {
                     errs.push(`${entry.player_name} W${entry.worker_number} ${entry.action_type}: ${entry.result_message}`);
+                    const pid = entry.player_id;
+                    if (!perPlayer[pid]) perPlayer[pid] = [];
+                    perPlayer[pid].push({
+                        original_action: entry.action_type,
+                        card_name: entry.card_name || null,
+                        reason: entry.result_message,
+                    });
                 }
             }
-            return {actions: (r.resolution_log || []).length, errors: errs};
+            return {actions: (r.resolution_log || []).length, errors: errs, perPlayer};
         }
     """)
+    if data and data.get("perPlayer"):
+        # Feed resolution-time rejections back to the matching player_idx
+        # so they appear in next turn's prompt.
+        player_id_to_idx = page.evaluate(
+            "Game.localState.players.map(p => p.id)"
+        )
+        for pid_str, rejs in data["perPlayer"].items():
+            pid = int(pid_str)
+            try:
+                idx = player_id_to_idx.index(pid)
+            except ValueError:
+                continue
+            LAST_REJECTIONS.setdefault(idx, []).extend(rejs)
     if data and data.get("errors"):
         for e in data["errors"]:
             line = f"  WARN: AUDIT round={round_n} resolution: {e}"
@@ -736,6 +792,7 @@ def dump_state_snapshot(page, round_n):
 # ─────────────────────────────────────────────────────────────────────
 
 TURN_HISTORY = {}   # player_idx -> [most-recent first, capped to 2]
+LAST_REJECTIONS = {}  # player_idx -> [{action, card, reason}] from previous round only
 
 
 def play_player_turn(page, player_idx, round_n):
@@ -769,9 +826,24 @@ def play_player_turn(page, player_idx, round_n):
         if len(history) >= 2 and history[0] == history[1]:
             history_line += " You played the IDENTICAL sequence twice. Pick a different action this round or justify why the same sequence is still optimal."
 
+    # Rejection feedback: surface engine rejections from the previous turn
+    # so the agent doesn't keep re-trying impossible plays (e.g. Patent
+    # Troll Litigation when Power < 5).
+    rejections = LAST_REJECTIONS.pop(player_idx, [])
+    rejection_line = ""
+    if rejections:
+        items = []
+        for r in rejections:
+            label = r.get("card_name") or r.get("original_action") or "(unknown)"
+            items.append(f"  - {label}: {r.get('reason', 'unknown reason')}")
+        rejection_line = (
+            "\nLAST ROUND, the engine rejected these plays. Do NOT propose them again "
+            "this turn unless the underlying requirement is now met:\n" + "\n".join(items)
+        )
+
     sys_prompt = system_prompt_for(player_idx)
     user_msg = (
-        f"{tempo_line}{history_line}\n"
+        f"{tempo_line}{history_line}{rejection_line}\n"
         f"Your state:\n"
         f"```json\n{json.dumps(snap, indent=2)}\n```\n"
         f"Return the JSON strategy now."
@@ -786,14 +858,17 @@ def play_player_turn(page, player_idx, round_n):
 
     by_n = {p["worker"]: p for p in placements}
     chosen = []
+    rejections_this_turn = []
     for n in range(1, total_workers + 1):
         plan = by_n.get(n, {"worker": n, "action": "raise_funds"})
-        action, err = place_with_fallback(
+        action, rejection = place_with_fallback(
             page, pid, n,
             plan.get("action"), plan.get("region"),
             plan.get("card_id"), plan.get("sub_action"),
             avail_dict,
         )
+        if rejection:
+            rejections_this_turn.append(rejection)
         # Surface the card name on a play_card placement so the run log
         # shows what's actually being played (helps spot persona drift —
         # Disruptor playing utility cards vs real sabotage, etc.).
@@ -808,13 +883,19 @@ def play_player_turn(page, player_idx, round_n):
                     return d ? d.name : null;
                 }
             """, plan["card_id"])
-        chosen.append({"worker": n, "action": action, "error": err, "card_name": card_name})
+        chosen.append({"worker": n, "action": action, "rejection": rejection, "card_name": card_name})
 
     # Record this round's chosen action list for the anti-deadlock hint
     # on the player's next turn. Capped to the 2 most recent.
     history = TURN_HISTORY.setdefault(player_idx, [])
     history.insert(0, [a["action"] for a in chosen if a["action"]])
     del history[2:]
+
+    # Stash placement-time rejections so next turn's prompt can surface them
+    # to the LLM. Resolution-time rejections get appended later by the
+    # round loop after Game.lastResolution is read.
+    if rejections_this_turn:
+        LAST_REJECTIONS.setdefault(player_idx, []).extend(rejections_this_turn)
     return chosen
 
 
