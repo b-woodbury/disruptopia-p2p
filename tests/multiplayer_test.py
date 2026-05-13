@@ -103,7 +103,7 @@ def run():
         log("2.4 joiner received host's player list", join_state["names"] == ["Alice", "Bob"], str(join_state))
 
         print("\n=== 3. Host places a worker — joiner sees it ===")
-        host_page.locator("button.btn-worker").nth(4).click()  # Marketing
+        host_page.locator(".strategy-tile").nth(4).click()  # Marketing
         time.sleep(3.5)  # > polling interval (2.5s)
         host_placements = host_page.evaluate("Game.localState.workerPlacements")
         join_placements = join_page.evaluate("Game.localState.workerPlacements")
@@ -114,7 +114,7 @@ def run():
             log("3.4 joiner placement playerId=1 (host)", join_placements[0]["playerId"] == 1)
 
         print("\n=== 4. Joiner places a worker — host sees it ===")
-        join_page.locator("button.btn-worker").nth(4).click()  # Marketing for player 2
+        join_page.locator(".strategy-tile").nth(4).click()  # Marketing for player 2
         time.sleep(3.5)
         host_placements = host_page.evaluate("Game.localState.workerPlacements")
         log("4.1 host now sees 2 placements", len(host_placements) == 2, f"host_placements={host_placements}")
@@ -124,11 +124,11 @@ def run():
 
         print("\n=== 5. Both place all 3 workers then host clicks Execute Strategy ===")
         # Host: 2 more workers
-        host_page.locator("button.btn-worker").nth(7).click(); time.sleep(0.5)  # Raise Funds
-        host_page.locator("button.btn-worker").nth(0).click(); time.sleep(0.5)  # Buy Chips
+        host_page.locator(".strategy-tile").nth(7).click(); time.sleep(0.5)  # Raise Funds
+        host_page.locator(".strategy-tile").nth(0).click(); time.sleep(0.5)  # Buy Chips
         # Joiner: 2 more workers
-        join_page.locator("button.btn-worker").nth(7).click(); time.sleep(0.5)
-        join_page.locator("button.btn-worker").nth(0).click(); time.sleep(0.5)
+        join_page.locator(".strategy-tile").nth(7).click(); time.sleep(0.5)
+        join_page.locator(".strategy-tile").nth(0).click(); time.sleep(0.5)
 
         # Wait for actions to round-trip
         time.sleep(4)
@@ -259,7 +259,7 @@ def run():
         # joiner's pre-reload state — proves the reconnect is fetching
         # a fresh snapshot from the host via WebRTC, not just relying on
         # local IndexedDB.
-        host_page.locator("#player-select")  # no-op, just keep context alive
+        host_page.locator("#header-bar")  # no-op, just keep context alive
         host_page.evaluate("""
             (() => {
                 // Manually broadcast a placement-style action: discard a hand

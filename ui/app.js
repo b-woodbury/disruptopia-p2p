@@ -245,6 +245,11 @@ function refreshData() {
 
     updatePlayerSelector(Game.currentGameState.players);
     const me = Game.currentGameState.players.find(p => p.id === Game.PLAYER_ID);
+    // Push the active player's color into a CSS variable so every player-themed
+    // element (worker chips, name badge, dashboard stripe) stays in sync.
+    if (Game.PLAYER_ID && PLAYER_COLORS[Game.PLAYER_ID]) {
+        document.body.style.setProperty('--player-color', PLAYER_COLORS[Game.PLAYER_ID]);
+    }
     renderStrategyBoard();
     if (me) {
         updateUI(me);
@@ -279,13 +284,37 @@ function refreshData() {
     }).catch(e => console.warn("Save failed:", e));
 }
 
+// switchPlayer changes which player's board is *displayed*. The active turn
+// player (Game.turnPlayerId) is set elsewhere — by the auto-advance at the
+// end of Execute Strategy and by Game.PLAYER_ID at game start. If newId is
+// not the turn player, the view enters "peek" mode — strategy clicks are
+// blocked and the hand is rendered as card backs.
 async function switchPlayer(newId) {
     if (!newId) return;
     Game.PLAYER_ID = parseInt(newId);
+    if (Game.turnPlayerId == null) Game.turnPlayerId = Game.PLAYER_ID;
     localStorage.setItem('active_player_id', Game.PLAYER_ID);
-    const sel = document.getElementById('player-select');
-    if (sel) sel.value = Game.PLAYER_ID;
     refreshData();
+}
+
+// Promote the displayed player to *also* be the turn player. Used after
+// Execute Strategy resolves: in local pass-and-play, we advance to the next
+// player who hasn't yet executed their strategy this round.
+function setTurnPlayer(playerId) {
+    Game.turnPlayerId = playerId;
+    Game.PLAYER_ID = playerId;
+    localStorage.setItem('active_player_id', Game.PLAYER_ID);
+}
+
+// Test helper: switch the active turn player by display name. Replaces the
+// old dropdown-driven flow used by playwright/agent tests.
+function switchPlayerByName(name) {
+    if (!Game.currentGameState) return false;
+    const p = Game.currentGameState.players.find(pl => pl.name === name);
+    if (!p) return false;
+    setTurnPlayer(p.id);
+    refreshData();
+    return true;
 }
 
 async function finishRound() {
@@ -330,10 +359,10 @@ function updateSetupForm() {
         <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
             <div style="width:20px; height:20px; border-radius:50%; background:${color}; border:2px solid #fff; flex-shrink:0;"></div>
             <div style="flex:1;">
-                <input type="text" id="setup-name-${i}" value="${defaults[i]}" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-family:'Inter',system-ui,sans-serif; font-size:0.85rem;">
+                <input type="text" id="setup-name-${i}" value="${defaults[i]}" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-family:'Space Grotesk',system-ui,sans-serif; font-size:0.85rem;">
             </div>
             <div>
-                <select id="setup-region-${i}" style="padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Inter',system-ui,sans-serif;">
+                <select id="setup-region-${i}" style="padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:0.85rem; font-family:'Space Grotesk',system-ui,sans-serif;">
                     ${Config.REGIONS.map((r, idx) => `<option value="${idx+1}" ${regions[i]===(idx+1)?'selected':''}>${r} (${idx+1})</option>`).join('')}
                 </select>
             </div>
@@ -347,7 +376,7 @@ function setSetupMode(mode) {
     for (const [m, id] of Object.entries(tabs)) {
         const el = document.getElementById(id);
         if (m === mode) {
-            el.style.background = '#4f46e5'; el.style.color = '#fff'; el.style.borderColor = '#4f46e5';
+            el.style.background = '#818cf8'; el.style.color = '#fff'; el.style.borderColor = '#818cf8';
             el.style.fontWeight = '600';
         } else {
             el.style.background = '#fff'; el.style.color = '#1e1b18'; el.style.borderColor = '#d4c9b8';
@@ -544,9 +573,9 @@ function renderMpBanner() {
         ? `<span style="margin-left:auto; padding:2px 8px; background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; border-radius:6px; font-weight:600;">DESYNC @ round ${desync.round}</span>`
         : '';
     banner.innerHTML = `
-        <span style="font-weight:600; color:#4f46e5;">${Game.mp.mode === 'host' ? 'Hosting' : 'Joined'}</span>
+        <span style="font-weight:600; color:#818cf8;">${Game.mp.mode === 'host' ? 'Hosting' : 'Joined'}</span>
         <span style="color:#78716c;">code</span>
-        <span style="font-family:'Fredoka',cursive; letter-spacing:0.15rem; color:#4f46e5; font-weight:600;">${Game.mp.gameCode}</span>
+        <span style="font-family:'Space Grotesk',system-ui,sans-serif; letter-spacing:0.15rem; color:#818cf8; font-weight:600;">${Game.mp.gameCode}</span>
         <span style="color:#78716c;">as P${Game.PLAYER_ID}</span>
         ${desyncMarkup}
     `;
@@ -641,7 +670,7 @@ async function promptInteraction(interaction) {
             for (const rId of interaction.shared_regions) {
                 const btn = document.createElement('button');
                 btn.innerText = `Region ${rId} (${Config.REGIONS[rId-1]})`;
-                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#4f46e5; color:#fff; border:none; border-radius:8px;";
+                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#818cf8; color:#fff; border:none; border-radius:8px;";
                 btn.onclick = () => { modal.style.display = 'none'; resolve({region_id: rId}); };
                 optsEl.appendChild(btn);
             }
@@ -654,7 +683,7 @@ async function promptInteraction(interaction) {
             for (const rId of interaction.available_regions) {
                 const btn = document.createElement('button');
                 btn.innerText = `Region ${rId} (${Config.REGIONS[rId-1]})`;
-                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#4f46e5; color:#fff; border:none; border-radius:8px;";
+                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#818cf8; color:#fff; border:none; border-radius:8px;";
                 btn.onclick = () => {
                     selected.push(rId);
                     btn.disabled = true; btn.style.background = '#9ca3af';
@@ -677,7 +706,7 @@ async function promptInteraction(interaction) {
             for (const rId of interaction.available_regions) {
                 const btn = document.createElement('button');
                 btn.innerText = `Region ${rId} (${Config.REGIONS[rId-1]})`;
-                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#dc2626; color:#fff; border:none; border-radius:8px;";
+                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#f87171; color:#fff; border:none; border-radius:8px;";
                 btn.onclick = () => { modal.style.display = 'none'; resolve({region_id: rId}); };
                 optsEl.appendChild(btn);
             }
@@ -689,7 +718,7 @@ async function promptInteraction(interaction) {
             for (const c of (interaction.target_hand || [])) {
                 const btn = document.createElement('button');
                 btn.innerText = c.name;
-                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#d97706; color:#fff; border:none; border-radius:8px;";
+                btn.style.cssText = "padding:8px 16px; margin:4px; cursor:pointer; background:#fbbf24; color:#fff; border:none; border-radius:8px;";
                 btn.onclick = () => { modal.style.display = 'none'; resolve({card_id: c.id}); };
                 optsEl.appendChild(btn);
             }

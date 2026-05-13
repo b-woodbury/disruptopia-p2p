@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Disruptopia map: option comparison</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Space Grotesk', system-ui, sans-serif; background: #f0ece3; color: #1e1b18; margin: 0; padding: 24px; }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  p.intro { color: #78716c; font-size: 14px; max-width: 1000px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 1700px; margin: 0 auto; }
+  .card { background: #faf7f2; border: 1px solid #d4c9b8; border-radius: 14px; padding: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
+  .card h2 { font-size: 16px; margin-bottom: 4px; color: #1e1b18; }
+  .card .meta { font-size: 12px; color: #78716c; margin-bottom: 10px; }
+  .map-wrap { position: relative; width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid #d4c9b8; background: #eee7d6; }
+  .map-wrap.option-a { aspect-ratio: 1603 / 742; }
+  .map-wrap.option-b { aspect-ratio: 2400 / 1412; }
+  .map-wrap img { width: 100%; height: 100%; display: block; }
+  .pros { font-size: 13px; color: #1e1b18; margin-top: 12px; line-height: 1.6; }
+  .pros b { color: #b45309; }
+</style>
+</head>
+<body>
+  <h1>Map options for review</h1>
+  <p class="intro">Two candidate map looks. Same region territory polygons + adjacency lines overlay both — the visual identity comes from the base layer underneath.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>A · Current SVG (live in game)</h2>
+      <div class="meta">Wikimedia "Simplified blank world map" (CC0) · 87 KB · equirectangular</div>
+      <div class="map-wrap option-a">
+        <img src="../../images/world-map.svg" alt="Current map">
+      </div>
+      <div class="pros">
+        <b>Pros:</b> Crisp at any zoom · small file · clean modern feel · region polygons & adjacency lines integrated.<br>
+        <b>Cons:</b> Feels flat / blank-style · no atmosphere.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>B · 1764 Bellin (cartoonified)</h2>
+      <div class="meta">Public domain by age · 375 KB · Mercator · French place-names</div>
+      <div class="map-wrap option-b">
+        <img src="1764-bellin-cartoon.png" alt="Cartoonified Bellin 1764 map">
+        <svg viewBox="0 0 1603 742" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="position:absolute; top:0; left:0; width:100%; height:100%;">
+  <g class="territories">
+  <polygon points="120,100 380,90 410,150 440,220 410,290 320,310 220,300 140,260 100,200 80,140" fill="#fda4af" fill-opacity="0.38" stroke="#fda4af" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="410,150 580,135 600,200 590,270 510,290 440,290 410,260 410,200" fill="#fcd34d" fill-opacity="0.38" stroke="#fcd34d" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="700,90 880,85 870,180 800,260 740,270 690,250 670,180 670,120" fill="#86efac" fill-opacity="0.38" stroke="#86efac" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="880,85 1110,90 1100,200 1010,260 920,260 870,220 870,150" fill="#67e8f9" fill-opacity="0.38" stroke="#67e8f9" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="1110,90 1570,95 1570,290 1490,340 1380,320 1250,290 1130,250 1110,180" fill="#c4b5fd" fill-opacity="0.38" stroke="#c4b5fd" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="220,300 410,290 470,360 460,430 380,460 280,440 240,400 220,360" fill="#fbbf24" fill-opacity="0.38" stroke="#fbbf24" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="380,460 580,440 700,460 700,580 660,660 540,720 420,700 360,620 360,540" fill="#a5b4fc" fill-opacity="0.38" stroke="#a5b4fc" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="720,290 920,290 1000,360 990,460 970,560 900,640 800,680 720,650 690,580 700,460 700,360" fill="#fda4af" fill-opacity="0.38" stroke="#fda4af" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="870,260 1090,260 1100,360 1050,440 970,450 900,400 870,340" fill="#86efac" fill-opacity="0.38" stroke="#86efac" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  <polygon points="1090,340 1480,350 1500,490 1420,580 1320,580 1230,530 1150,470 1100,420" fill="#fcd34d" fill-opacity="0.38" stroke="#fcd34d" stroke-width="4" stroke-opacity="0.95" stroke-linejoin="round"/>
+  </g>
+  <g class="adjacencies">
+  <line x1="337" y1="231" x2="459" y2="241" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="337" y1="231" x2="363" y2="334" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="459" y1="241" x2="801" y2="187" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="459" y1="241" x2="363" y2="334" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="801" y1="187" x2="957" y2="158" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="801" y1="187" x2="879" y2="427" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="957" y1="158" x2="1400" y2="251" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="957" y1="158" x2="996" y2="309" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="1400" y1="251" x2="1226" y2="363" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="363" y1="334" x2="584" y2="505" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="584" y1="505" x2="879" y2="427" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="879" y1="427" x2="996" y2="309" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  <line x1="996" y1="309" x2="1226" y2="363" stroke="#3f2e1c" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-dasharray="10 6"/>
+  </g>
+  <g class="region-nodes">
+  <circle cx="337" cy="231" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="337" y="179" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">NW Americas</text>
+  <circle cx="459" cy="241" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="459" y="189" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">NE Americas</text>
+  <circle cx="801" cy="187" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="801" y="135" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">W Europe</text>
+  <circle cx="957" cy="158" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="957" y="106" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">E Europe</text>
+  <circle cx="1400" cy="251" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="1400" y="199" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">NE Asia</text>
+  <circle cx="363" cy="334" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="363" y="384" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">W Americas</text>
+  <circle cx="584" cy="505" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="584" y="555" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">S America</text>
+  <circle cx="879" cy="427" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="879" y="477" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">Africa</text>
+  <circle cx="996" cy="309" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="996" y="257" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">Middle East</text>
+  <circle cx="1226" cy="363" r="6" fill="rgba(255,255,255,0.95)" stroke="#3f2e1c" stroke-width="2.5"/>
+  <text x="1226" y="413" text-anchor="middle" font-family="Space Grotesk,sans-serif" font-weight="800" font-size="26" fill="#1e1b18" paint-order="stroke" stroke="rgba(250,247,242,0.95)" stroke-width="7">SE Asia</text>
+  </g>
+</svg>
+      </div>
+      <div class="pros">
+        <b>Pros:</b> Strong vintage character · evocative · real continent outlines · cartoonified into our cream/tan palette · French labels add charm to the "ruthless AI empire" theme.<br>
+        <b>Cons:</b> Mercator distorts polar regions · region overlays drift slightly because the underlying projection differs from the polygon coords (fixable) · 4× larger file.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

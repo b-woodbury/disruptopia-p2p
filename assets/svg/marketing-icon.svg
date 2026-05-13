@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Marketing" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Megaphone cone -->
+  <path d="M5 13 L 22 6 L 22 26 L 5 19 Z" fill="currentColor" fill-opacity="0.18"/>
+  <!-- Mouthpiece -->
+  <rect x="2" y="13" width="3.5" height="6" rx="0.6" fill="currentColor"/>
+  <!-- Handle -->
+  <path d="M11 21 L 13 27" stroke-width="2"/>
+  <!-- Sound waves -->
+  <path d="M24 11 Q 27 16 24 21" stroke-opacity="0.85"/>
+  <path d="M27 8 Q 31 16 27 24" stroke-opacity="0.6"/>
+</svg>

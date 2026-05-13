@@ -5,15 +5,17 @@
     <title>Disruptopia P2P</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Inter', system-ui, sans-serif;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
             background: #f0ece3;
             color: #1e1b18;
             height: 100vh;
             overflow: hidden;
+            /* Default until refreshData() sets it for the active player. */
+            --player-color: #818cf8;
         }
 
         /* --- SETUP SCREEN --- */
@@ -37,12 +39,12 @@
             height: 100vh;
             padding: 6px;
             gap: 6px;
-            grid-template-columns: 240px 1fr 220px;
-            grid-template-rows: auto 1fr 270px;
+            grid-template-columns: 320px 200px minmax(0,1fr) 220px;
+            grid-template-rows: auto 1fr 340px;
             grid-template-areas:
-                "header  header   header"
-                "strat   center   effects"
-                "hand    hand     hand";
+                "header  header   header   header"
+                "strat   dash     center   effects"
+                "hand    hand     hand     effects";
         }
 
         .panel {
@@ -59,57 +61,192 @@
             grid-area: header;
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 4px 10px;
+            gap: 10px;
+            padding: 6px 12px;
             background: #ffffff;
             border: 1px solid #d4c9b8;
             border-radius: 12px;
-            font-size: 0.75rem;
+            font-size: 0.85rem;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
         #header-bar .stat-cell {
             text-align: center;
-            padding: 3px 8px;
+            padding: 6px 12px;
             border: 1px solid #e5ddd0;
+            border-bottom: 3px solid var(--player-color, #818cf8);
             background: #faf7f2;
-            min-width: 55px;
+            min-width: 72px;
             border-radius: 8px;
         }
-        #header-bar .stat-cell .lbl { color: #78716c; font-size: 0.55rem; display: block; }
-        #header-bar .stat-cell .val { font-weight: 600; font-size: 0.85rem; color: #1e1b18; }
+        #header-bar .stat-cell .lbl { color: #78716c; font-size: 0.65rem; display: block; letter-spacing: 0.02em; }
+        #header-bar .stat-cell .val { font-weight: 700; font-size: 1.15rem; color: #1e1b18; }
+        /* Header logo doubles as the rules button (top-right). */
+        #header-logo {
+            width: 88px;
+            height: 88px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+            border: 2px solid rgba(255,255,255,0.5);
+            cursor: pointer;
+            transition: transform 200ms ease, box-shadow 200ms ease;
+        }
+        #header-logo:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        }
+        /* Opponent switcher: a row of small worker-token swatches that switch
+           the displayed player. Active player is highlighted; others fade. */
+        .opp-switch {
+            width: 34px;
+            height: 34px;
+            cursor: pointer;
+            border-radius: 50%;
+            padding: 2px;
+            box-sizing: border-box;
+            opacity: 0.55;
+            transition: opacity 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+            display: inline-block;
+        }
+        .opp-switch:hover { opacity: 1; transform: scale(1.1); }
+        .opp-switch.active {
+            opacity: 1;
+            box-shadow: 0 0 0 2px var(--player-color, #818cf8), 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .opp-switch svg { display: block; }
 
-        /* Strategy board */
+        /* Strategy board — matches images/quarterly_strategy.png style */
         #strategy-panel {
             grid-area: strat;
             display: flex;
             flex-direction: column;
-            overflow-y: auto !important;  /* override .panel overflow:hidden */
+            background: linear-gradient(180deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px solid #fbbf24;
+            padding: 8px;
         }
-        #strategy-panel h3 {
-            font-family: 'Fredoka', cursive;
-            font-size: 0.85rem;
-            margin-bottom: 4px;
-            color: #ffffff;
-            background: #4f46e5;
-            padding: 6px 10px;
+        #strategy-panel .strat-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #b45309;
+            text-align: center;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+            padding: 4px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 6px;
+            border: 1px solid #f59e0b;
+        }
+        #strategy-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
+        .strategy-tile {
+            background: #fffbeb;
+            border: 1.5px solid #f59e0b;
             border-radius: 8px;
-            text-align: center;
+            padding: 7px 9px;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 150ms ease, background 150ms ease;
+            position: relative;
+            min-height: 84px;
+            overflow: hidden;
         }
-        #strategy-panel table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
-        #strategy-panel th, #strategy-panel td {
-            border: 1px solid #e5ddd0;
-            padding: 5px 6px;
-            text-align: center;
+        .strategy-tile:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(217,119,6,0.25);
+            background: #fff;
         }
-        #strategy-panel th { background: #faf7f2; color: #78716c; font-size: 0.6rem; font-weight: 600; }
-        #strategy-panel td:first-child { text-align: left; }
-        #strategy-panel tr:hover { background: #faf7f2; }
+        .strategy-tile.unavailable {
+            opacity: 0.45;
+            cursor: not-allowed;
+            filter: saturate(0.4);
+        }
+        .strategy-tile.unavailable:hover {
+            transform: none;
+            box-shadow: none;
+            background: #fffbeb;
+        }
+        .strategy-tile.special-red {
+            background: #fef2f2;
+            border-color: #f87171;
+        }
+        .strategy-tile.special-red:hover { background: #fff5f5; box-shadow: 0 4px 10px rgba(220,38,38,0.25); }
+        .strategy-tile.special-red .tile-name { color: #b91c1c; }
+        .tile-head {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 3px;
+        }
+        .tile-icon {
+            width: 26px;
+            height: 26px;
+            color: #b45309;
+            flex-shrink: 0;
+        }
+        .strategy-tile.special-red .tile-icon { color: #b91c1c; }
+        .tile-name {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #78350f;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            line-height: 1.1;
+        }
+        .tile-cost {
+            font-size: 0.85rem;
+            color: #1e1b18;
+            font-weight: 600;
+            margin-top: auto;
+            padding: 3px 0 1px;
+        }
+        .tile-cost.cost-free { color: #4ade80; }
+        .tile-cost.cost-max { color: #b91c1c; font-style: italic; }
+        .tile-cost-secondary { font-size: 0.68rem; color: #78716c; font-weight: 500; }
+        .tile-workers {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            margin-top: 4px;
+        }
+        .tile-workers:empty { display: none; }
+        .worker-chip {
+            min-width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            /* Filled at runtime with the active player's PLAYER_COLOR. */
+            background: var(--player-color, #818cf8);
+            color: #fff;
+            font-size: 0.65rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            border: 1px solid rgba(0,0,0,0.35);
+            text-shadow: 0 1px 1px rgba(0,0,0,0.4);
+        }
+        .worker-chip.free { background: #4ade80; border-color: #15803d; }
+        .strategy-actions {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(146,64,14,0.3);
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        /* legacy btn-worker (kept in case anything still references it) */
         .btn-worker {
-            background: #4f46e5; color: #fff; border: none;
+            background: #818cf8; color: #fff; border: none;
             padding: 3px 8px; cursor: pointer; font-size: 0.65rem; font-weight: bold;
             border-radius: 6px;
         }
-        .btn-worker:hover { background: #4338ca; }
+        .btn-worker:hover { background: #6366f1; }
 
         /* Hand panel (bottom row) */
         #hand-panel {
@@ -132,10 +269,10 @@
             padding: 6px;
         }
         #map-panel h3 {
-            font-family: 'Fredoka', cursive;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
             font-size: 0.75rem;
             margin-bottom: 2px;
-            color: #4f46e5;
+            color: #818cf8;
         }
         /* map-and-effects no longer used — map and effects are separate grid areas */
         /*
@@ -159,20 +296,41 @@
         #world-map-wrapper {
             position: relative;
             width: 100%;
-            aspect-ratio: 975 / 636;
+            aspect-ratio: 1603 / 742;
             max-height: 100%;
-            background-image: url('WorldMap.png');
-            background-size: 100% 100%;
-            background-repeat: no-repeat;
-            border-radius: 8px;
+            background: #eee7d6;
+            border-radius: 12px;
             overflow: hidden;
             border: 1px solid #d4c9b8;
+        }
+        /* The world map is an external SVG (images/world-map.svg) — loaded
+           via <img> so the heavy continent path doesn't bloat index.html.
+           preserveAspectRatio is set inside the SVG to xMidYMid meet. */
+        #world-map-svg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: block;
+            user-select: none;
         }
         #world-map-wrapper #presence-overlay {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
             pointer-events: none;
+        }
+        /* SVG styles for the new map. */
+        .continent { fill: #e8dec7; stroke: #b8a988; stroke-width: 1.5; stroke-linejoin: round; }
+        .adj-line { stroke: #b8a988; stroke-width: 1.6; fill: none; opacity: 0.4; stroke-linecap: round; stroke-dasharray: 4 4; }
+        .region-ring { fill: rgba(255,255,255,0.7); stroke: #b8a988; stroke-width: 2; }
+        .region-label {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-weight: 600; font-size: 14px;
+            fill: #1e1b18;
+            text-anchor: middle;
+            paint-order: stroke;
+            stroke: rgba(250,247,242,0.9);
+            stroke-width: 4;
         }
 
         /* Log (hidden -- kept for JS compatibility) */
@@ -183,7 +341,89 @@
             display: none;
         }
 
-        /* Presence & map markers */
+        /* One .region-marker per region. Vertically stacks the label on top
+           of a flex-row of worker tokens + subsidy coin. The container is
+           CENTERED on (layout.x%, layout.y%) horizontally and vertically — so
+           label-text and token-row are both centered over the same point. */
+        .region-marker {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            transform: translate(-50%, -50%);
+            white-space: nowrap;
+        }
+        .region-label {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #1e1b18;
+            line-height: 1.2;
+            letter-spacing: 0.01em;
+            /* Cream outline so the text stays readable on the map without
+               needing a pill background. */
+            text-shadow:
+                -1px -1px 0 rgba(250,247,242,0.95),
+                 1px -1px 0 rgba(250,247,242,0.95),
+                -1px  1px 0 rgba(250,247,242,0.95),
+                 1px  1px 0 rgba(250,247,242,0.95),
+                 0   -1px 0 rgba(250,247,242,0.95),
+                 0    1px 0 rgba(250,247,242,0.95),
+                -1px  0   0 rgba(250,247,242,0.95),
+                 1px  0   0 rgba(250,247,242,0.95);
+        }
+        .region-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 2px;
+        }
+        /* Inline-SVG worker token, tinted via `color:` per player. */
+        .presence-token {
+            width: 32px;
+            height: 32px;
+            display: inline-block;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            margin: 0 1px;
+            transition: transform 0.15s;
+        }
+        .presence-token:hover { transform: scale(1.15); z-index: 10; }
+        .presence-token svg { display: block; }
+        /* Subsidy coin — flows in the same row as the worker tokens. */
+        .subsidy-marker {
+            position: relative;
+            width: 28px;
+            height: 28px;
+            margin: 0 1px;
+            display: inline-flex;
+            filter: drop-shadow(0 1px 3px rgba(217,119,6,0.5));
+            pointer-events: none;
+        }
+        .subsidy-marker img {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .subsidy-marker .subsidy-count {
+            position: absolute;
+            bottom: -4px;
+            right: -4px;
+            background: #fff;
+            color: #b45309;
+            border: 1.5px solid #fbbf24;
+            border-radius: 999px;
+            min-width: 14px;
+            height: 14px;
+            line-height: 11px;
+            text-align: center;
+            font-size: 0.55rem;
+            font-weight: 800;
+            padding: 0 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        /* Legacy class kept for any orphan callers (setup screen still uses it). */
         .presence-bubble {
             padding: 2px 5px;
             border-radius: 8px;
@@ -193,27 +433,6 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
             border: 1px solid rgba(0,0,0,0.15);
             white-space: nowrap;
-        }
-        .region-marker {
-            position: absolute;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 1px;
-            transform: translate(-50%, -50%);
-        }
-        .subsidy-token {
-            width: 20px; height: 20px;
-            border-radius: 50%;
-            background: #d97706;
-            border: 2px solid #b45309;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 1px 4px rgba(217,119,6,0.4);
-            font-size: 0.5rem;
-            font-weight: bold;
-            color: #fff;
         }
 
         /* Setup player pieces */
@@ -251,7 +470,7 @@
             padding-bottom: 4px;
         }
         .setup-drop-zone.highlight {
-            border-color: #4f46e5;
+            border-color: #818cf8;
             background: rgba(79,70,229,0.1);
         }
         .setup-drop-zone .zone-label {
@@ -275,22 +494,59 @@
         #choice-modal > div {
             background: #ffffff;
             border: 1px solid #d4c9b8;
-            padding: 20px;
+            padding: 24px;
             min-width: 350px;
-            max-width: 750px;
-            max-height: 85vh;
-            overflow-y: auto;
+            max-width: 95vw;
+            width: auto;
+            max-height: 95vh;
             color: #1e1b18;
             border-radius: 12px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
         }
+        #modal-options { overflow: visible !important; }
         #modal-title {
-            margin-bottom: 8px;
-            font-size: 1rem;
-            font-family: 'Fredoka', cursive;
-            color: #4f46e5;
+            margin-bottom: 6px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            color: #1e1b18;
+            padding-bottom: 6px;
+            border-bottom: 3px solid var(--player-color, #818cf8);
+            display: inline-block;
         }
-        #modal-desc { font-size: 0.8rem; color: #78716c; margin-bottom: 12px; }
+        #modal-desc { font-size: 0.85rem; color: #78716c; margin-bottom: 16px; }
+
+        /* Shared modal-confirm button styling so every modal's primary action
+           pulls from --player-color instead of hard-coded indigos/reds. */
+        .modal-confirm-btn {
+            padding: 8px 20px;
+            background: var(--player-color, #818cf8);
+            color: #1e1b18;
+            border: 2px solid rgba(0,0,0,0.18);
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border-radius: 8px;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+        }
+        .modal-confirm-btn.danger {
+            background: #f87171;
+            color: #fff;
+            border-color: #b91c1c;
+        }
+        .modal-secondary-btn {
+            padding: 8px 20px;
+            background: #f5f0e8;
+            color: #78716c;
+            border: 1px solid #d4c9b8;
+            cursor: pointer;
+            font-size: 0.8rem;
+            border-radius: 8px;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+        }
 
         /* ── Resolution Animation ─────────────────────── */
         .resolution-overlay {
@@ -346,13 +602,13 @@
 
         @keyframes statPulseUp {
             0%   { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
-            30%  { box-shadow: 0 0 8px 3px rgba(22, 163, 74, 0.5); color: #16a34a; transform: scale(1.15); }
+            30%  { box-shadow: 0 0 8px 3px rgba(22, 163, 74, 0.5); color: #4ade80; transform: scale(1.15); }
             100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); transform: scale(1); }
         }
 
         @keyframes statPulseDown {
             0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
-            30%  { box-shadow: 0 0 8px 3px rgba(220, 38, 38, 0.5); color: #dc2626; transform: scale(1.15); }
+            30%  { box-shadow: 0 0 8px 3px rgba(220, 38, 38, 0.5); color: #f87171; transform: scale(1.15); }
             100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); transform: scale(1); }
         }
 
@@ -366,21 +622,21 @@
             100% { opacity: 1; transform: scale(1); }
         }
 
-        /* Reset button */
+/* Reset button */
         #btn-reset-game {
             position: fixed;
             bottom: 8px;
-            right: 8px;
+            left: 8px;
             padding: 4px 10px;
             font-size: 0.6rem;
             background: #ffffff;
-            color: #dc2626;
-            border: 1px solid #dc2626;
+            color: #f87171;
+            border: 1px solid #f87171;
             border-radius: 6px;
             cursor: pointer;
             z-index: 50;
             opacity: 0.6;
-            font-family: 'Inter', system-ui, sans-serif;
+            font-family: 'Space Grotesk', system-ui, sans-serif;
         }
         #btn-reset-game:hover { opacity: 1; }
 
@@ -394,38 +650,314 @@
             justify-content: center;
             align-items: center;
             backdrop-filter: blur(4px);
+            padding: 24px;
         }
-        #rules-panel > div {
+        #rules-panel > .rules-modal {
             background: #ffffff;
             border: 1px solid #d4c9b8;
-            padding: 20px;
-            max-width: 600px;
-            max-height: 80vh;
-            overflow-y: auto;
+            max-width: 1100px;
+            width: 100%;
+            max-height: 90vh;
             color: #1e1b18;
+            border-radius: 14px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.25);
+            display: flex;
+            overflow: hidden;
+        }
+        .rules-aid-pane {
+            flex: 0 0 38%;
+            background: #f5f0e8;
+            border-right: 1px solid #d4c9b8;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .rules-aid-pane img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+        .rules-aid-pane .pdf-link {
+            margin-top: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: #818cf8;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.78rem;
+            box-shadow: 0 2px 6px rgba(79,70,229,0.3);
+            transition: background 150ms ease, transform 150ms ease;
+        }
+        .rules-aid-pane .pdf-link:hover { background: #6366f1; transform: translateY(-1px); }
+        .rules-text-pane {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px 28px;
+            font-size: 0.8rem;
+            line-height: 1.55;
+        }
+        .rules-text-pane h3 {
+            color: #818cf8;
+            margin-bottom: 4px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+        .rules-text-pane .tagline {
+            color: #78716c;
+            font-size: 0.8rem;
+            margin-bottom: 14px;
+            font-style: italic;
+        }
+        .rules-text-pane h4 {
+            color: #818cf8;
+            margin: 14px 0 4px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            border-bottom: 1px solid #e5ddd0;
+            padding-bottom: 2px;
+        }
+        .rules-text-pane p { margin: 4px 0; }
+        .rules-text-pane ul { margin: 4px 0 4px 18px; padding: 0; }
+        .rules-text-pane li { margin: 2px 0; }
+        .rules-text-pane .action-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 4px; }
+        .rules-text-pane .action-list > div { padding: 4px 8px; background: #faf7f2; border-left: 2px solid #818cf8; border-radius: 0 4px 4px 0; }
+        .rules-text-pane .action-list b { color: #818cf8; }
+        .rules-text-pane .note {
+            background: #fffbeb;
+            border-left: 3px solid #fbbf24;
+            padding: 6px 10px;
+            border-radius: 0 6px 6px 0;
+            margin: 8px 0;
             font-size: 0.75rem;
-            line-height: 1.6;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+            color: #78716c;
         }
-        #rules-panel h3 {
-            color: #4f46e5;
-            margin-bottom: 10px;
-            font-family: 'Fredoka', cursive;
+        .rules-text-pane .clamps {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 4px;
         }
-        #rules-panel h4 {
-            color: #4f46e5;
-            margin: 10px 0 4px;
-            font-family: 'Fredoka', cursive;
+        .rules-text-pane .clamp-pill {
+            background: #faf7f2;
+            border: 1px solid #e5ddd0;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            color: #1e1b18;
+        }
+        .rules-close-btn {
+            position: absolute;
+            top: 36px;
+            right: 36px;
+            background: #fff;
+            color: #1e1b18;
+            border: 1px solid #d4c9b8;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 1rem;
+            line-height: 1;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+            z-index: 91;
+        }
+        .rules-close-btn:hover { background: #faf7f2; }
+        @media (max-width: 900px) {
+            #rules-panel > .rules-modal { flex-direction: column; }
+            .rules-aid-pane { flex: 0 0 auto; max-height: 38vh; border-right: none; border-bottom: 1px solid #d4c9b8; }
         }
 
-        /* Cards in Play panel */
+        /* Hand & Cards-in-Play sizing — image is the whole card, no footer label. */
+        .hand-card, .play-card {
+            border: 2px solid #d4c9b8;
+            background: #ffffff;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: transform 200ms ease, box-shadow 200ms ease;
+            cursor: pointer;
+            position: relative;
+        }
+        .hand-card img, .play-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .hand-card {
+            height: 100%;
+            aspect-ratio: 5 / 7;
+            transform-origin: bottom center;
+        }
+        .hand-card:hover {
+            transform: scale(2.6) translateY(-12px);
+            z-index: 9000;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+            overflow: visible;
+        }
+        .play-card {
+            width: 100%;
+            aspect-ratio: 5 / 7;
+            transform-origin: center right;
+            flex-shrink: 1;
+            min-height: 0;
+        }
+        /* Anchor the hover scale to the corner closest to the panel edge so
+           the enlarged card grows inward only — never above the panel top
+           (would crop), never below the panel bottom (would crop the bottom). */
+        .play-slots-col > *:first-child { transform-origin: top right; }
+        .play-slots-col > *:last-child  { transform-origin: bottom right; }
+        .play-card:hover {
+            transform: scale(2.4);
+            z-index: 9000;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+            overflow: visible;
+        }
+        .hand-card.queued, .play-card.queued {
+            opacity: 0.55;
+            border-color: #818cf8;
+            background: #f5f0e8;
+        }
+        /* Face-down hand card (when peeking at an opponent). No hover-zoom —
+           there's nothing useful to read up close. */
+        .hand-card.face-down {
+            cursor: default;
+            border-color: #d4c9b8;
+        }
+        .hand-card.face-down:hover {
+            transform: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .hand-card.queued::after, .play-card.queued::after {
+            content: "QUEUED";
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: #818cf8;
+            color: #fff;
+            font-size: 0.55rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+        }
+        .play-card.this-turn {
+            border-color: var(--player-color, #818cf8);
+            box-shadow: 0 0 0 1px var(--player-color, #818cf8), 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .play-card.this-turn::after {
+            content: "THIS TURN";
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: var(--player-color, #818cf8);
+            color: #1e1b18;
+            font-size: 0.5rem;
+            font-weight: 700;
+            padding: 2px 5px;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+        }
+        .play-card.active-effect {
+            border-color: var(--player-color, #818cf8);
+            box-shadow: 0 0 0 1px var(--player-color, #818cf8), 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .play-card.active-effect::after {
+            content: "ACTIVE";
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: var(--player-color, #818cf8);
+            color: #1e1b18;
+            font-size: 0.5rem;
+            font-weight: 700;
+            padding: 2px 5px;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+        }
+        /* Slide-out animation for action cards being consumed at resolution. */
+        @keyframes playCardSlideOut {
+            0%   { transform: scale(1) translateX(0); opacity: 1; }
+            30%  { transform: scale(1.4); opacity: 1; box-shadow: 0 12px 32px rgba(220,38,38,0.4); }
+            100% { transform: scale(0.7) translateX(-120%) rotate(-12deg); opacity: 0; }
+        }
+        @keyframes playCardSettleIn {
+            0%   { transform: scale(1.4); box-shadow: 0 12px 32px rgba(217,119,6,0.6); }
+            100% { transform: scale(1); box-shadow: 0 0 0 1px #fbbf24, 0 2px 8px rgba(217,119,6,0.2); }
+        }
+        .play-card.resolving-discard {
+            animation: playCardSlideOut 700ms ease-in forwards;
+            z-index: 9000;
+            pointer-events: none;
+        }
+        .play-card.resolving-keep {
+            animation: playCardSettleIn 700ms ease-out forwards;
+            z-index: 9000;
+            pointer-events: none;
+        }
+
+        /* Empty slot placeholders */
+        .hand-slot.empty, .play-slot.empty {
+            border: 2px dashed #d4c9b8;
+            background: rgba(255,255,255,0.4);
+            flex-shrink: 0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #c4b8a4;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+        }
+        .hand-slot.empty {
+            height: 100%;
+            aspect-ratio: 5 / 7;
+        }
+        .play-slot.empty {
+            width: 100%;
+            aspect-ratio: 5 / 7;
+            flex-shrink: 1;
+            min-height: 0;
+        }
+
+        /* Cards in Play panel — vertical column of effect slots */
         #active-effects-panel {
             background: #faf7f2;
             border: 1px solid #e5ddd0;
             border-radius: 8px;
-            padding: 6px;
-            min-height: 120px;
+            padding: 8px;
+            overflow: visible !important;
+            display: flex;
+            flex-direction: column;
+        }
+        #active-effects-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            min-height: 0;
+            overflow: visible;
+        }
+        .play-slots-col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            min-height: 0;
+            overflow: visible;
         }
 
         /* --- MOBILE / TABLET --- */
@@ -483,20 +1015,20 @@
 <!-- SETUP SCREEN -->
 <div id="setup-screen">
     <section>
-        <h2 style="text-align: center; margin-bottom: 16px; font-size: 1.4rem; font-family: 'Fredoka', cursive; color: #4f46e5;">Disruptopia - New Game</h2>
+        <h2 style="text-align: center; margin-bottom: 16px; font-size: 1.4rem; font-family: 'Space Grotesk', system-ui, sans-serif; color: #818cf8;">Disruptopia - New Game</h2>
 
         <!-- Mode tabs: Local / Host / Join -->
         <div id="setup-mode-tabs" style="display:flex; gap:6px; margin-bottom:14px;">
-            <button id="setup-tab-local" onclick="setSetupMode('local')" style="flex:1; padding:8px; border:1px solid #4f46e5; background:#4f46e5; color:#fff; border-radius:8px; font-family:'Inter',system-ui,sans-serif; font-weight:600; cursor:pointer;">Local Game</button>
-            <button id="setup-tab-host" onclick="setSetupMode('host')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Inter',system-ui,sans-serif; cursor:pointer;">Host Online</button>
-            <button id="setup-tab-join" onclick="setSetupMode('join')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Inter',system-ui,sans-serif; cursor:pointer;">Join Online</button>
+            <button id="setup-tab-local" onclick="setSetupMode('local')" style="flex:1; padding:8px; border:1px solid #818cf8; background:#818cf8; color:#fff; border-radius:8px; font-family:'Space Grotesk',system-ui,sans-serif; font-weight:600; cursor:pointer;">Local Game</button>
+            <button id="setup-tab-host" onclick="setSetupMode('host')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Space Grotesk',system-ui,sans-serif; cursor:pointer;">Host Online</button>
+            <button id="setup-tab-join" onclick="setSetupMode('join')" style="flex:1; padding:8px; border:1px solid #d4c9b8; background:#fff; color:#1e1b18; border-radius:8px; font-family:'Space Grotesk',system-ui,sans-serif; cursor:pointer;">Join Online</button>
         </div>
 
         <!-- LOCAL + HOST share the same player config form -->
         <div id="setup-local-host">
             <div style="margin-bottom: 12px;">
                 <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Number of Players</label><br>
-                <select id="setup-player-count" onchange="updateSetupForm()" style="background: #ffffff; color: #1e1b18; border: 1px solid #d4c9b8; padding: 8px; width: 100%; font-size: 1rem; border-radius: 8px; font-family: 'Inter', system-ui, sans-serif;">
+                <select id="setup-player-count" onchange="updateSetupForm()" style="background: #ffffff; color: #1e1b18; border: 1px solid #d4c9b8; padding: 8px; width: 100%; font-size: 1rem; border-radius: 8px; font-family: 'Space Grotesk', system-ui, sans-serif;">
                     <option value="2">2 Players</option>
                     <option value="3">3 Players</option>
                     <option value="4">4 Players</option>
@@ -511,14 +1043,14 @@
                 Direct peer-to-peer over WebRTC — no shared server. Both players just need a working internet connection.
             </div>
 
-            <button id="setup-launch-btn" onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
+            <button id="setup-launch-btn" onclick="launchGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 10px; background: linear-gradient(135deg, #818cf8, #a78bfa); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: 0.5px;">
                 Launch Game
             </button>
 
             <!-- After hosting, show the game code here -->
-            <div id="setup-host-code" style="display:none; margin-top:12px; padding:12px; background:#eef2ff; border:1px solid #4f46e5; border-radius:10px; text-align:center;">
+            <div id="setup-host-code" style="display:none; margin-top:12px; padding:12px; background:#eef2ff; border:1px solid #818cf8; border-radius:10px; text-align:center;">
                 <div style="color:#78716c; font-size:0.8rem;">Share this code with your opponents:</div>
-                <div id="setup-host-code-value" style="font-family:'Fredoka',cursive; font-size:1.7rem; letter-spacing:0.2rem; color:#4f46e5; font-weight:700; margin:6px 0; word-break:break-all;"></div>
+                <div id="setup-host-code-value" style="font-family:'Space Grotesk',system-ui,sans-serif; font-size:1.7rem; letter-spacing:0.2rem; color:#818cf8; font-weight:700; margin:6px 0; word-break:break-all;"></div>
                 <div id="setup-host-status" style="color:#78716c; font-size:0.75rem;"></div>
             </div>
         </div>
@@ -530,7 +1062,7 @@
             </div>
             <div style="margin-bottom: 10px;">
                 <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Room Code</label><br>
-                <input id="setup-join-code" type="text" maxlength="10" placeholder="ABCDEFGHJK" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:1rem; font-family:'Fredoka',cursive; letter-spacing:0.2rem; text-transform:uppercase;">
+                <input id="setup-join-code" type="text" maxlength="10" placeholder="ABCDEFGHJK" style="width:100%; padding:6px 10px; border:1px solid #d4c9b8; border-radius:6px; font-size:1rem; font-family:'Space Grotesk',system-ui,sans-serif; letter-spacing:0.2rem; text-transform:uppercase;">
             </div>
             <div style="margin-bottom: 10px;">
                 <label style="color: #78716c; font-size: 0.8rem; font-weight: 500;">Which player slot are you?</label><br>
@@ -542,7 +1074,7 @@
                 </select>
                 <div style="color:#78716c; font-size:0.7rem; margin-top:3px;">The host is always Player 1; pick whichever slot the host assigned you.</div>
             </div>
-            <button onclick="joinOnlineGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 6px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Fredoka', cursive; letter-spacing: 0.5px;">
+            <button onclick="joinOnlineGame()" style="width: 100%; padding: 12px; font-size: 1rem; margin-top: 6px; background: linear-gradient(135deg, #818cf8, #a78bfa); color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 10px; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: 0.5px;">
                 Join Game
             </button>
             <div id="setup-join-status" style="margin-top:8px; color:#78716c; font-size:0.75rem; text-align:center;"></div>
@@ -553,64 +1085,62 @@
 <!-- GAME SCREEN -->
 <div id="game-screen">
 
-    <!-- Header bar: identity + stats + round -->
+    <!-- Header bar: identity + opponent switcher + stats + round + logo (rules) -->
     <div id="header-bar">
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <select id="player-select" onchange="switchPlayer(this.value)" style="background: #faf7f2; color: #1e1b18; border: 1px solid #d4c9b8; font-size: 0.7rem; padding: 2px 4px; border-radius: 6px; font-family: 'Inter', system-ui, sans-serif;">
-            </select>
-            <span id="user-name" style="font-weight: 600; font-size: 0.85rem; color: #1e1b18;">&#8212;</span>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span id="user-name" style="font-weight: 700; font-size: 1.1rem; color: #1e1b18; background: var(--player-color, #818cf8); padding: 6px 14px; border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,0.2);">&#8212;</span>
+            <div id="opponent-switcher" style="display: flex; align-items: center; gap: 4px;"></div>
+            <span id="viewing-banner" style="display:none; font-size:0.7rem; color:#78716c; font-style:italic; padding:2px 8px; background:#faf7f2; border:1px dashed #d4c9b8; border-radius:6px;"></span>
         </div>
-        <div style="flex: 1; display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
-            <div class="stat-cell"><span class="lbl">Power</span><span class="val" id="stat-power" style="color:#d97706;">0</span></div>
+        <div style="flex: 1; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;">
+            <div class="stat-cell"><span class="lbl">Power</span><span class="val" id="stat-power" style="color:#fbbf24;">0</span></div>
             <div class="stat-cell"><span class="lbl">Income</span><span class="val" id="stat-income">0</span></div>
             <div class="stat-cell"><span class="lbl">Subsidies</span><span class="val" id="stat-subsidies">0</span></div>
-            <div class="stat-cell"><span class="lbl">Corp Funds</span><span class="val" id="stat-corp-funds" style="color:#16a34a;">0</span></div>
-            <div class="stat-cell"><span class="lbl">Pers Funds</span><span class="val" id="stat-pers-funds" style="color:#16a34a;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Corp Funds</span><span class="val" id="stat-corp-funds" style="color:#4ade80;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Pers Funds</span><span class="val" id="stat-pers-funds" style="color:#4ade80;">0</span></div>
             <div class="stat-cell"><span class="lbl">Workers</span><span class="val" id="stat-total-workers">0</span></div>
-            <div class="stat-cell"><span class="lbl">Reputation</span><span class="val" id="stat-reputation" style="color:#4f46e5;">0</span></div>
+            <div class="stat-cell"><span class="lbl">Reputation</span><span class="val" id="stat-reputation" style="color:#818cf8;">0</span></div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
             <div id="mp-banner" style="display:none; align-items:center; gap:6px; padding:2px 8px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px; font-size:0.7rem;"></div>
-            <span id="round-display" style="font-size: 0.9rem; color: #4f46e5; font-weight: bold; font-family: 'Fredoka', cursive;"></span>
-            <button onclick="toggleRules()" style="background: #4f46e5; color: #fff; border: none; padding: 4px 10px; font-size: 0.7rem; cursor: pointer; border-radius: 6px; font-weight: 600;" title="Rules Reference">?</button>
+            <span id="round-display" style="font-size: 1rem; color: #1e1b18; background: var(--player-color, #818cf8); padding: 6px 16px; border-radius: 999px; font-weight: 700; font-family: 'Space Grotesk', system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,0.2);"></span>
+            <img id="header-logo" src="images/logo.jpg?v=20260513080201" alt="Disruptopia" title="Open rules" onclick="toggleRules()">
         </div>
     </div>
 
     <!-- Left: Strategy Board -->
     <div id="strategy-panel" class="panel">
-        <h3>Quarterly Strategy Board</h3>
-        <table>
-            <thead><tr><th>Action</th><th>Cost</th><th>Assigned</th><th></th></tr></thead>
-            <tbody id="strategy-rows"></tbody>
-        </table>
-        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5ddd0; display: flex; gap: 6px; flex-wrap: wrap;">
+        <div class="strat-title">QUARTERLY STRATEGY</div>
+        <div id="strategy-grid"></div>
+        <div class="strategy-actions">
             <button id="btn-execute-strategy" onclick="startStrategyExecution()"
-                style="padding: 8px 14px; font-size: 0.75rem; font-weight: bold; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; border: none; cursor: pointer; flex: 1; border-radius: 8px; font-family: 'Fredoka', cursive; letter-spacing: 0.3px;">
+                style="padding: 8px 14px; font-size: 0.78rem; font-weight: 700; background: var(--player-color, #818cf8); color: #1e1b18; border: 2px solid rgba(0,0,0,0.18); cursor: pointer; flex: 1; border-radius: 8px; font-family: 'Space Grotesk', system-ui, sans-serif; letter-spacing: 0.4px; box-shadow: 0 2px 6px rgba(0,0,0,0.18);">
                 Execute Strategy
             </button>
             <button id="btn-undo-placement" onclick="undoPlacement()"
-                style="padding: 8px 14px; font-size: 0.7rem; font-weight: 600; background: #f5f0e8; color: #78716c; border: 1px solid #d4c9b8; cursor: pointer; border-radius: 8px;">
+                style="padding: 8px 12px; font-size: 0.72rem; font-weight: 600; background: #fff; color: #78716c; border: 1px solid #d4c9b8; cursor: pointer; border-radius: 8px;">
                 Undo
             </button>
         </div>
     </div>
 
-    <!-- Center: Dashboard + Map -->
+    <!-- Net Worth Dashboard (stacked vertically in its own column) -->
+    <div id="dashboard-panel" class="panel" style="grid-area: dash; display: flex; flex-direction: column; padding: 6px; border-top: 4px solid var(--player-color, #818cf8);">
+        <div id="player-dashboard" style="overflow-y: auto; font-size: 0.6rem; flex: 1;"></div>
+    </div>
+
+    <!-- Center: Map -->
     <div id="map-panel" class="panel">
-        <div style="flex-shrink: 0;">
-            <h3 style="font-size: 0.65rem; margin-bottom: 1px; color: #78716c;">Player Dashboard</h3>
-            <div id="player-dashboard" style="overflow-x: auto; font-size: 0.6rem;"></div>
-        </div>
         <div id="map-container">
             <div id="world-map-wrapper">
+                <img id="world-map-svg" src="images/world-map.svg?v=20260513080201" alt="World map">
                 <div id="presence-overlay"></div>
             </div>
         </div>
     </div>
 
     <!-- Right column: Cards in Play -->
-    <div id="active-effects-panel" class="panel" style="grid-area: effects; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;">
-        <h3 style="font-size: 0.75rem; color: #d97706; margin: 0; font-family: 'Fredoka', cursive;">Cards in Play</h3>
+    <div id="active-effects-panel" class="panel" style="grid-area: effects;">
         <div id="active-effects-container"></div>
     </div>
 
@@ -618,9 +1148,8 @@
     <div id="log-panel" style="display:none;"><div id="log"></div></div>
 
     <!-- Bottom: Hand (full width, large cards) -->
-    <div id="hand-panel" class="panel" style="background: #f5f0e8;">
-        <h3 style="font-size: 0.8rem; margin-bottom: 4px; flex-shrink: 0; font-family: 'Fredoka', cursive; color: #4f46e5;">Hand</h3>
-        <div id="player-hand" style="display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; flex: 1; min-height: 0; align-items: flex-start; padding: 4px 8px; justify-content: center;"></div>
+    <div id="hand-panel" class="panel" style="background: #f5f0e8; overflow: visible;">
+        <div id="player-hand" style="display: flex; gap: 10px; flex: 1; height: 100%; align-items: stretch; padding: 8px; justify-content: center; overflow: visible;"></div>
     </div>
 
 </div>
@@ -630,28 +1159,70 @@
 
 <!-- Rules Panel -->
 <div id="rules-panel" onclick="toggleRules()">
-    <div onclick="event.stopPropagation()">
-        <h3>Disruptopia - Quick Reference</h3>
-        <h4>Goal</h4>
-        <p>Earn the most Victory Points (VP) over 8 rounds. VP comes from: Power (1 VP per 5), Model Version (1 VP each), Presence Regions (1 VP each), Personal Funds ranking, and Net Worth race bonuses.</p>
-        <h4>Each Round</h4>
-        <p>1. Each player assigns their Tech Workers to actions on the Strategy Board.<br>
-        2. All players click "Execute Strategy" to resolve actions in turn order.<br>
-        3. New cards are drawn and the next round begins.</p>
-        <h4>Actions</h4>
-        <p><b>Buy Chips</b> - Upgrade Compute Level (needed before Model upgrades). Costs $.<br>
-        <b>Recruit</b> - Hire a new Tech Worker. Costs $. Net Worth gates higher workers.<br>
-        <b>Train Model</b> - Upgrade Model Version. Costs workers. Requires Compute >= Model. Gains Power + Rep.<br>
-        <b>Increase Net Worth</b> - Startup->Millionaire ($3, -2 Rep) or Millionaire->Billionaire ($5, -4 Rep).<br>
-        <b>Marketing</b> - Startup: +3 Rep. Millionaire: +1 Rep, +1 Power. Billionaire: +2 Power.<br>
-        <b>Scale Presence</b> - Expand to adjacent region. Earn Subsidy Tokens.<br>
-        <b>Play Card</b> - Play a card from your hand (costs workers based on card).<br>
-        <b>Raise Funds</b> - Move Corp Funds to Personal Funds, then draw Income to Corp Funds.</p>
-        <h4>Income</h4>
-        <p>Income = Power + (Subsidy Tokens x Net Worth Level). Drawn during Raise Funds. Cap per worker: 8 (1w), 19 (2w), 39 (3w).</p>
-        <h4>Cards</h4>
-        <p>3 decks: Research (tech buffs), Influence (power/money), Sabotage (attack opponents). Draw 1 from each per round. Hand limit: 5.</p>
-        <button onclick="toggleRules()" style="margin-top: 15px; padding: 8px 20px; background: #4f46e5; color: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 8px; font-family: 'Fredoka', cursive;">Close</button>
+    <button class="rules-close-btn" onclick="event.stopPropagation(); toggleRules();" title="Close">&times;</button>
+    <div class="rules-modal" onclick="event.stopPropagation()">
+
+        <!-- Left: Player Aid headliner + PDF link -->
+        <div class="rules-aid-pane">
+            <img src="images/player_aid.png?v=20260513080201" alt="Disruptopia Player Aid: round steps, scoring, and key icons" loading="lazy">
+            <a class="pdf-link" href="images/rulebook.pdf?v=20260513080201" target="_blank" rel="noopener">
+                Open Full Rulebook (PDF) &#8599;
+            </a>
+        </div>
+
+        <!-- Right: Quick reference -->
+        <div class="rules-text-pane">
+            <h3>Disruptopia &mdash; Quick Reference</h3>
+            <div class="tagline">A ruthless engine builder. 2&ndash;5 players, 1&ndash;2 hours.</div>
+
+            <h4>Goal</h4>
+            <p>The game ends after the round in which any player reaches <b>Model Version 7</b>. The player with the most Victory Points wins. Score from:</p>
+            <ul>
+                <li>1 VP per <b>5 Power</b></li>
+                <li>1 VP per <b>Model Version</b></li>
+                <li>1 VP per <b>Region with Presence</b></li>
+                <li><b>Net Worth bonuses</b> from claimed Millionaire / Billionaire VP Tokens (0&ndash;2 VP each)</li>
+                <li><b>Personal Funds race</b> &mdash; 2p: 3 VP for 1st. 3p: 3/1. 4&ndash;5p: 3/2/1.</li>
+            </ul>
+
+            <h4>Each Round</h4>
+            <p>1. All players <b>draw 1 card from each deck</b> (Research / Influence / Sabotage), discard down to hand limit 5, and secretly place numbered Tech Workers on Quarterly Strategy actions.<br>
+            2. Starting from the Player 1 Token and going clockwise, each player <b>resolves actions in Tech Worker order</b>. Pay costs from Corporate Funds, not Personal Funds.<br>
+            3. Pass the Player 1 Token clockwise; begin the next round.</p>
+
+            <h4>The 8 Actions</h4>
+            <div class="action-list">
+                <div><b>Buy Chips</b> &mdash; raise Compute Level (Startup&nbsp;&le;2, Millionaire&nbsp;&le;4, Billionaire&nbsp;&le;7).</div>
+                <div><b>Recruit</b> &mdash; take the lowest-numbered worker; usable this round. Net Worth gates W4 / W5&ndash;6 / W7&ndash;8.</div>
+                <div><b>Train Model</b> &mdash; needs Compute &gt; Model. Costs 1W (M1&ndash;2), 2W (M3&ndash;4), 3W (M5), 4W (M6&ndash;7). +1 Rep and +1 Power per 2 Regions of Presence.</div>
+                <div><b>Increase Net Worth</b> &mdash; Startup&rarr;Millionaire: $3, &minus;2 Rep. Millionaire&rarr;Billionaire: $5, &minus;4 Rep. Claim highest available VP Token at that tier.</div>
+                <div><b>Marketing</b> &mdash; Startup: +3 Rep. Millionaire: +1 Rep, +1 Power. Billionaire: +2 Power.</div>
+                <div><b>Scale Presence</b> &mdash; pay for next presence token, place in a region adjacent to your existing presence. Claim 1 Subsidy Token there if any remain.</div>
+                <div><b>Play Card</b> &mdash; place workers equal to the card's cost (0&ndash;2) on Play Card. Must meet all requirements when played.</div>
+                <div><b>Raise Funds</b> &mdash; siphon all Corporate Funds to Personal Funds, then collect Income into Corporate Funds.</div>
+            </div>
+
+            <h4>Income</h4>
+            <p>Income = <b>Power + (Subsidy Tokens &times; Net Worth)</b>. Startup subsidies are worth $0; Millionaire $1; Billionaire $2. Place 1, 2, or 3 consecutive workers on Raise Funds; the player mat lists the income for that many workers. Fewer workers than your Income cap means you collect the smaller cap, not your full income.</p>
+
+            <h4>Cards</h4>
+            <p>3 decks: <b>Research</b> (compute / model buffs), <b>Influence</b> (power, reputation, money), <b>Sabotage</b> (attack opponents &mdash; sometimes helps you too).</p>
+            <p>Each card is either an <b>Action Card</b> (play then discard) or an <b>Effect Card</b> (after play, parks in an Effect Slot; you may replay it once per round by spending its worker cost again). Hand limit is 5 at the end of each draw phase.</p>
+
+            <h4>Reputation Bonus Tiles</h4>
+            <p>Highest-Reputation players claim Tiles by tier: Tile 1 (any Net Worth), Tile 2 (Millionaire+, Rep&nbsp;&ge;6), Tile 3 (Billionaire, Rep&nbsp;&ge;10). Once Tile 2/3 is claimed it stays even if Rep drops. If Rep ever falls to &minus;3 you are forced to take a negative Tile 0 until you climb back to 0. In a 4&ndash;5p game the top <i>two</i> Rep holders each claim a Tile per tier.</p>
+
+            <h4>Hard Limits</h4>
+            <div class="clamps">
+                <div class="clamp-pill">Power: 1 &mdash; 30</div>
+                <div class="clamp-pill">Income: $0 &mdash; $39</div>
+                <div class="clamp-pill">Reputation: &minus;3 &mdash; 10</div>
+                <div class="clamp-pill">Hand limit: 5</div>
+            </div>
+
+            <div class="note"><b>Tiebreak (after VP):</b> highest Model Version &rarr; most Power &rarr; most Personal Funds &rarr; highest Reputation &rarr; shared failure to become a sociopathically dominant monopoly.</div>
+        </div>
+
     </div>
 </div>
 
@@ -665,23 +1236,23 @@
 </div>
 
 <!-- Engine (game logic runs locally) -->
-<script src="engine/config.js"></script>
-<script src="engine/cards.js"></script>
-<script src="engine/card-effects.js"></script>
-<script src="engine/game-engine.js"></script>
-<script src="engine/availability.js"></script>
-<script src="engine/seed.js"></script>
+<script src="engine/config.js?v=20260513080201"></script>
+<script src="engine/cards.js?v=20260513080201"></script>
+<script src="engine/card-effects.js?v=20260513080201"></script>
+<script src="engine/game-engine.js?v=20260513080201"></script>
+<script src="engine/availability.js?v=20260513080201"></script>
+<script src="engine/seed.js?v=20260513080201"></script>
 <!-- Network (persistence + optional relay) -->
 <!-- PeerJS: WebRTC data channels (signaling via free public broker). -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="network/persistence.js"></script>
-<script src="network/peer.js"></script>
-<script src="network/relay-client.js"></script>
+<script src="network/persistence.js?v=20260513080201"></script>
+<script src="network/peer.js?v=20260513080201"></script>
+<script src="network/relay-client.js?v=20260513080201"></script>
 <!-- UI -->
-<script src="ui/rendering.js"></script>
-<script src="ui/modals.js"></script>
-<script src="ui/animations.js"></script>
-<script src="ui/game-logic.js"></script>
-<script src="ui/app.js"></script>
+<script src="ui/rendering.js?v=20260513080201"></script>
+<script src="ui/modals.js?v=20260513080201"></script>
+<script src="ui/animations.js?v=20260513080201"></script>
+<script src="ui/game-logic.js?v=20260513080201"></script>
+<script src="ui/app.js?v=20260513080201"></script>
 </body>
 </html>

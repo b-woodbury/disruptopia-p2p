@@ -6,9 +6,28 @@ const Config = {
     COMPUTE_NET_WORTH_REQ: {3: 1, 4: 1, 5: 2, 6: 2, 7: 2},
     MODEL_WORKER_COSTS: {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 4},
     MODEL_NET_WORTH_REQ: {3: 1, 4: 1, 5: 2, 6: 2, 7: 2},
+    // Geographic adjacencies (15 edges).
+    //  1 Silicon Valley (N. America)        — adj: 2 ElDorado, 3 Spotify (Atlantic), 8 Fab (Bering)
+    //  2 El Dorado (S. America)             — adj: 1, 5 Cobalt Mine (Atlantic)
+    //  3 Spotify (N. Europe)                — adj: 1, 4 Yacht, 6 Bot Farm
+    //  4 Yacht Goes Here (Mediterranean)    — adj: 3, 5, 6
+    //  5 Cobalt Mine (Sub-Saharan Africa)   — adj: 2, 4, 7 PhDistan (Indian Ocean)
+    //  6 Bot Farm (Eurasian interior)       — adj: 3, 4, 7, 8
+    //  7 PhDistan (S. Asia)                 — adj: 5, 6, 8, 9 Coworking Bali
+    //  8 The Fab (E. Asia)                  — adj: 1, 6, 7, 9
+    //  9 Coworking Bali (SE Asia)           — adj: 7, 8, 10 Bunkers
+    // 10 Post-Apocalypse Bunkers (Oceania)  — adj: 9
     WORLD_MAP: {
-        1: [2, 6], 2: [1, 3, 7], 3: [2, 4, 8], 4: [3, 5, 9], 5: [4, 10],
-        6: [1, 7], 7: [2, 6, 8], 8: [3, 7, 9], 9: [4, 8, 10], 10: [5, 9],
+        1: [2, 3, 8],
+        2: [1, 5],
+        3: [1, 4, 6],
+        4: [3, 5, 6],
+        5: [2, 4, 7],
+        6: [3, 4, 7, 8],
+        7: [5, 6, 8, 9],
+        8: [1, 6, 7, 9],
+        9: [7, 8, 10],
+        10: [9],
     },
     NET_WORTH_COSTS: {
         1: {money: 3, reputation: 2},
@@ -22,7 +41,8 @@ const Config = {
     MARKETING_BONUSES: {
         0: {reputation: 3, power: 0}, 1: {reputation: 1, power: 1}, 2: {reputation: 0, power: 2},
     },
-    PLAYER_COLORS: {1: "#ff0000", 2: "#ffffff", 3: "#ffff00", 4: "#0000ff", 5: "#ffc0cb"},
+    // Pastel palette — soft, distinct hues over the cream board background.
+    PLAYER_COLORS: {1: "#f87171", 2: "#93c5fd", 3: "#86efac", 4: "#fcd34d", 5: "#c4b5fd"},
     REPUTATION_TILE_POOL: {
         0: [
             {name: "Inefficient R&D", effect: "model_cost_plus_1"}, {name: "Legacy Tax", effect: "compute_cost_plus_3"},
@@ -49,9 +69,21 @@ const Config = {
         marketing: "Startup: +3 Rep | Millionaire: +1 Rep +1 Pwr | Billionaire: +2 Pwr", scale_presence: "Expand to adjacent region (earn Subsidy Tokens)",
         play_card: "Play a card from your hand", raise_funds: "Siphon corp funds to personal, draw income",
     },
-    REGIONS: ["NW Americas", "NE Americas", "W Europe", "E Europe", "NE Asia", "W Americas", "S America", "Africa", "Middle East", "SE Asia"],
+    REGIONS: ["Silicon Valley", "El Dorado", "Spotify", "Yacht Goes Here", "The Cobalt Mine", "The Bot Farm", "PhDistan", "The Fab", "Coworking Bali", "Bunkers"],
+    // Geographic centers in % of the world-map.svg (1603x742 viewBox).
+    // Derived from the user's hand-positioned labels in
+    // images/labeled-world-map.jpg (OCR'd to pixel centers, then offset
+    // ~24px DOWN so the worker-token row sits just under each label).
     REGION_LAYOUT: [
-        {id:1,x:10,y:25,w:20,h:48},{id:2,x:30,y:25,w:20,h:48},{id:3,x:50,y:25,w:20,h:48},{id:4,x:70,y:25,w:20,h:48},{id:5,x:90,y:25,w:20,h:48},
-        {id:6,x:10,y:75,w:20,h:48},{id:7,x:30,y:75,w:20,h:48},{id:8,x:50,y:75,w:20,h:48},{id:9,x:70,y:75,w:20,h:48},{id:10,x:90,y:75,w:20,h:48}
+        {id:1,  x:12.91, y:33.15}, // Silicon Valley
+        {id:2,  x:22.65, y:70.35}, // El Dorado
+        {id:3,  x:46.85, y:17.52}, // Spotify
+        {id:4,  x:45.98, y:35.04}, // Yacht Goes Here
+        {id:5,  x:49.97, y:58.49}, // The Cobalt Mine
+        {id:6,  x:60.07, y:27.76}, // The Bot Farm
+        {id:7,  x:65.25, y:45.28}, // PhDistan
+        {id:8,  x:77.04, y:29.78}, // The Fab
+        {id:9,  x:75.98, y:53.10}, // Coworking Bali
+        {id:10, x:80.54, y:78.98}, // Bunkers
     ],
 };

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Subsidy token (gold coin)">
+  <defs>
+    <radialGradient id="coin" cx="0.35" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="0.6"/>
+      <feOffset dx="0" dy="0.6" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.5"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <!-- Outer rim -->
+    <circle cx="16" cy="16" r="14" fill="url(#rim)" stroke="#b45309" stroke-width="1"/>
+    <!-- Inner face -->
+    <circle cx="16" cy="16" r="11" fill="url(#coin)" stroke="#b45309" stroke-width="0.8"/>
+    <!-- $ glyph -->
+    <text x="16" y="21.5" text-anchor="middle"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="14" font-weight="bold" fill="#7c2d12">$</text>
+    <!-- Decorative dots around rim -->
+    <g fill="#b45309">
+      <circle cx="16" cy="3.5" r="0.7"/>
+      <circle cx="28.5" cy="16" r="0.7"/>
+      <circle cx="16" cy="28.5" r="0.7"/>
+      <circle cx="3.5" cy="16" r="0.7"/>
+    </g>
+    <!-- Highlight -->
+    <ellipse cx="11" cy="11" rx="3.5" ry="2" fill="#fef3c7" fill-opacity="0.45"/>
+  </g>
+</svg>

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Disruptopia World Map — Flat Geographic Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4f46e5; --accent:#7c3aed;
+    --cream:#f0ece3; --card:#faf7f2; --border:#d4c9b8;
+    --text:#1e1b18; --muted:#78716c;
+    --money:#16a34a; --subsidy:#d97706;
+    --p-red:#ef4444; --p-blue:#3b82f6;
+    --land:#e8dec7;
+    --land-stroke:#b8a988;
+    --water:#e1ddd0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Space Grotesk',sans-serif;
+    background:var(--cream);
+    color:var(--text);
+    display:flex;flex-direction:column;
+    min-height:100vh;
+  }
+  header{
+    background:linear-gradient(90deg,var(--primary),var(--accent));
+    color:#fff;
+    padding:18px 28px;
+    box-shadow:0 2px 10px rgba(0,0,0,.1);
+  }
+  header h1{font-weight:700;font-size:22px;letter-spacing:.3px}
+  header p{font-weight:400;font-size:13px;opacity:.85;margin-top:4px}
+  main{
+    flex:1;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:24px;
+  }
+  .map-wrap{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:18px;
+    box-shadow:0 8px 30px rgba(30,27,24,.08);
+    padding:18px;
+    position:relative;
+    width:100%;
+    max-width:1080px;
+  }
+  svg.map{display:block;width:100%;height:auto}
+
+  .continent{fill:var(--land);stroke:var(--land-stroke);stroke-width:1.5;stroke-linejoin:round}
+  .marker-group{cursor:pointer;transition:transform .18s ease, filter .18s ease;transform-origin:center;transform-box:fill-box}
+  .marker-group:hover{transform:scale(1.1);filter:drop-shadow(0 4px 10px rgba(79,70,229,.45))}
+  .marker-ring{fill:#fff;stroke:#4f46e5;stroke-width:3}
+  .marker-dot{fill:#4f46e5}
+  .marker-label{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;font-size:11px;
+    fill:var(--text);
+    pointer-events:none;
+    text-anchor:middle;
+    paint-order:stroke;
+    stroke:rgba(250,247,242,.9);
+    stroke-width:3.5;
+  }
+  .marker-idx{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;font-size:13px;
+    fill:#fff;
+    pointer-events:none;
+    text-anchor:middle;
+  }
+  .adj-line{
+    stroke:#4f46e5;
+    stroke-width:2;
+    fill:none;
+    opacity:.35;
+    stroke-linecap:round;
+  }
+
+  .legend{
+    position:absolute;
+    right:30px;
+    bottom:30px;
+    background:rgba(250,247,242,.95);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px 14px;
+    font-size:12px;
+    line-height:1.6;
+    box-shadow:0 4px 14px rgba(0,0,0,.06);
+  }
+  .legend h3{font-size:13px;font-weight:700;margin-bottom:6px;color:var(--primary)}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .swatch{width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+  .swatch.red{background:var(--p-red)}
+  .swatch.blue{background:var(--p-blue)}
+  .swatch.sub{background:var(--subsidy);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:9px;border:none}
+  .swatch.region{background:#fff;border:3px solid #4f46e5}
+  .swatch.land{background:var(--land);border:1px solid var(--land-stroke);border-radius:3px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Disruptopia World Map &mdash; Flat Geographic Concept</h1>
+  <p>Simplified continent silhouettes &middot; 10 region markers &middot; minimalist style</p>
+</header>
+<main>
+  <div class="map-wrap">
+    <svg class="map" viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="water" width="40" height="40" patternUnits="userSpaceOnUse">
+          <rect width="40" height="40" fill="#eee7d6"/>
+          <path d="M0 20 Q 10 14 20 20 T 40 20" fill="none" stroke="#dfd5be" stroke-width="1"/>
+          <path d="M0 32 Q 10 26 20 32 T 40 32" fill="none" stroke="#dfd5be" stroke-width="1"/>
+        </pattern>
+      </defs>
+
+      <!-- Water background -->
+      <rect x="0" y="0" width="1000" height="620" fill="url(#water)" rx="14"/>
+
+      <!-- =================== CONTINENT SILHOUETTES =================== -->
+      <!-- Simplified, stylized polygons (not geographically accurate). -->
+
+      <!-- North America (covers NW Americas, NE Americas, W Americas) -->
+      <path class="continent" d="
+        M 60 90
+        L 180 80
+        L 260 95
+        L 340 120
+        L 360 180
+        L 330 230
+        L 290 260
+        L 280 300
+        L 240 340
+        L 200 360
+        L 170 340
+        L 150 300
+        L 130 260
+        L 90 210
+        L 70 160
+        Z
+      "/>
+
+      <!-- Central America/Caribbean isthmus (W Americas connecting) -->
+      <path class="continent" d="
+        M 240 340
+        L 280 360
+        L 300 400
+        L 280 420
+        L 250 410
+        L 230 380
+        Z
+      "/>
+
+      <!-- South America -->
+      <path class="continent" d="
+        M 260 410
+        L 320 425
+        L 360 470
+        L 350 540
+        L 310 580
+        L 270 570
+        L 250 520
+        L 245 460
+        Z
+      "/>
+
+      <!-- Europe -->
+      <path class="continent" d="
+        M 410 95
+        L 480 80
+        L 540 90
+        L 580 110
+        L 600 150
+        L 590 200
+        L 540 220
+        L 480 215
+        L 430 200
+        L 410 170
+        L 395 130
+        Z
+      "/>
+
+      <!-- Asia (large blob: E Europe through NE Asia & part of Middle East) -->
+      <path class="continent" d="
+        M 580 90
+        L 700 75
+        L 820 70
+        L 920 95
+        L 940 140
+        L 920 200
+        L 870 230
+        L 800 240
+        L 740 230
+        L 700 215
+        L 660 220
+        L 620 200
+        L 600 170
+        L 590 130
+        Z
+      "/>
+
+      <!-- Middle East / Arabian peninsula -->
+      <path class="continent" d="
+        M 580 230
+        L 640 235
+        L 680 270
+        L 670 320
+        L 640 350
+        L 600 345
+        L 575 310
+        L 570 270
+        Z
+      "/>
+
+      <!-- Africa -->
+      <path class="continent" d="
+        M 460 230
+        L 540 230
+        L 580 260
+        L 595 310
+        L 580 380
+        L 555 450
+        L 510 510
+        L 470 525
+        L 430 490
+        L 410 430
+        L 415 360
+        L 430 290
+        Z
+      "/>
+
+      <!-- India / SE Asia peninsula -->
+      <path class="continent" d="
+        M 720 250
+        L 780 260
+        L 820 290
+        L 860 320
+        L 880 360
+        L 870 410
+        L 830 430
+        L 790 410
+        L 760 380
+        L 730 340
+        L 715 295
+        Z
+      "/>
+
+      <!-- Australia hint (decorative, no region) -->
+      <path class="continent" opacity="0.6" d="
+        M 870 480
+        L 940 475
+        L 960 510
+        L 930 540
+        L 880 530
+        Z
+      "/>
+
+      <!-- =================== ADJACENCY LINES =================== -->
+      <!-- Region marker centers:
+           0 NW Americas (170,180)  1 NE Americas (300,175)  2 W Europe (495,150)
+           3 E Europe (650,135)     4 NE Asia    (850,135)   5 W Americas (265,385)
+           6 S America (305,500)    7 Africa     (490,395)   8 Middle East (620,290)
+           9 SE Asia    (800,355)
+      -->
+      <g class="adjacencies">
+        <line class="adj-line" x1="170" y1="180" x2="300" y2="175"/>
+        <line class="adj-line" x1="170" y1="180" x2="265" y2="385"/>
+        <line class="adj-line" x1="300" y1="175" x2="495" y2="150"/>
+        <line class="adj-line" x1="300" y1="175" x2="305" y2="500"/>
+        <line class="adj-line" x1="495" y1="150" x2="650" y2="135"/>
+        <line class="adj-line" x1="495" y1="150" x2="490" y2="395"/>
+        <line class="adj-line" x1="650" y1="135" x2="850" y2="135"/>
+        <line class="adj-line" x1="650" y1="135" x2="620" y2="290"/>
+        <line class="adj-line" x1="850" y1="135" x2="800" y2="355"/>
+        <line class="adj-line" x1="265" y1="385" x2="305" y2="500"/>
+        <line class="adj-line" x1="305" y1="500" x2="490" y2="395"/>
+        <line class="adj-line" x1="490" y1="395" x2="620" y2="290"/>
+        <line class="adj-line" x1="620" y1="290" x2="800" y2="355"/>
+      </g>
+
+      <!-- =================== REGION MARKERS =================== -->
+      <g class="markers">
+        <g class="marker-group" onclick="alert('NW Americas (region 0)')">
+          <circle class="marker-ring" cx="170" cy="180" r="20"/>
+          <circle class="marker-dot" cx="170" cy="180" r="14"/>
+          <text class="marker-idx" x="170" y="185">0</text>
+          <text class="marker-label" x="170" y="220">NW Americas</text>
+        </g>
+        <g class="marker-group" onclick="alert('NE Americas (region 1)')">
+          <circle class="marker-ring" cx="300" cy="175" r="20"/>
+          <circle class="marker-dot" cx="300" cy="175" r="14"/>
+          <text class="marker-idx" x="300" y="180">1</text>
+          <text class="marker-label" x="300" y="215">NE Americas</text>
+        </g>
+        <g class="marker-group" onclick="alert('W Europe (region 2)')">
+          <circle class="marker-ring" cx="495" cy="150" r="20"/>
+          <circle class="marker-dot" cx="495" cy="150" r="14"/>
+          <text class="marker-idx" x="495" y="155">2</text>
+          <text class="marker-label" x="495" y="190">W Europe</text>
+        </g>
+        <g class="marker-group" onclick="alert('E Europe (region 3)')">
+          <circle class="marker-ring" cx="650" cy="135" r="20"/>
+          <circle class="marker-dot" cx="650" cy="135" r="14"/>
+          <text class="marker-idx" x="650" y="140">3</text>
+          <text class="marker-label" x="650" y="175">E Europe</text>
+        </g>
+        <g class="marker-group" onclick="alert('NE Asia (region 4)')">
+          <circle class="marker-ring" cx="850" cy="135" r="20"/>
+          <circle class="marker-dot" cx="850" cy="135" r="14"/>
+          <text class="marker-idx" x="850" y="140">4</text>
+          <text class="marker-label" x="850" y="175">NE Asia</text>
+        </g>
+        <g class="marker-group" onclick="alert('W Americas (region 5)')">
+          <circle class="marker-ring" cx="265" cy="385" r="20"/>
+          <circle class="marker-dot" cx="265" cy="385" r="14"/>
+          <text class="marker-idx" x="265" y="390">5</text>
+          <text class="marker-label" x="265" y="425">W Americas</text>
+        </g>
+        <g class="marker-group" onclick="alert('S America (region 6)')">
+          <circle class="marker-ring" cx="305" cy="500" r="20"/>
+          <circle class="marker-dot" cx="305" cy="500" r="14"/>
+          <text class="marker-idx" x="305" y="505">6</text>
+          <text class="marker-label" x="305" y="540">S America</text>
+        </g>
+        <g class="marker-group" onclick="alert('Africa (region 7)')">
+          <circle class="marker-ring" cx="490" cy="395" r="20"/>
+          <circle class="marker-dot" cx="490" cy="395" r="14"/>
+          <text class="marker-idx" x="490" y="400">7</text>
+          <text class="marker-label" x="490" y="435">Africa</text>
+        </g>
+        <g class="marker-group" onclick="alert('Middle East (region 8)')">
+          <circle class="marker-ring" cx="620" cy="290" r="20"/>
+          <circle class="marker-dot" cx="620" cy="290" r="14"/>
+          <text class="marker-idx" x="620" y="295">8</text>
+          <text class="marker-label" x="620" y="330">Middle East</text>
+        </g>
+        <g class="marker-group" onclick="alert('SE Asia (region 9)')">
+          <circle class="marker-ring" cx="800" cy="355" r="20"/>
+          <circle class="marker-dot" cx="800" cy="355" r="14"/>
+          <text class="marker-idx" x="800" y="360">9</text>
+          <text class="marker-label" x="800" y="395">SE Asia</text>
+        </g>
+      </g>
+
+      <!-- =================== PLAYER PRESENCE =================== -->
+      <g class="presence" pointer-events="none">
+        <!-- 2 red on NW Americas -->
+        <circle cx="148" cy="210" r="8" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+        <circle cx="162" cy="216" r="8" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+        <!-- 1 blue on W Europe -->
+        <circle cx="475" cy="180" r="8" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+        <!-- contested SE Asia -->
+        <circle cx="785" cy="385" r="8" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+        <circle cx="800" cy="390" r="8" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+      </g>
+
+      <!-- SUBSIDY on Africa -->
+      <g pointer-events="none">
+        <circle cx="520" cy="370" r="13" fill="#d97706" stroke="#fff" stroke-width="2"/>
+        <text x="520" y="375" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">S</text>
+      </g>
+    </svg>
+
+    <div class="legend">
+      <h3>Legend</h3>
+      <div class="row"><span class="swatch land"></span><span>Continent / land</span></div>
+      <div class="row"><span class="swatch region"></span><span>Region (clickable)</span></div>
+      <div class="row"><span class="swatch red"></span><span>Player 1 presence</span></div>
+      <div class="row"><span class="swatch blue"></span><span>Player 2 presence</span></div>
+      <div class="row"><span class="swatch sub">S</span><span>Subsidy token</span></div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

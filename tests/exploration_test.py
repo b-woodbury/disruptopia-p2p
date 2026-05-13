@@ -43,7 +43,7 @@ ACTION_INDEX = {
 
 def click_action(page, slug):
     """Click the action button for the given slug. Returns True if visible/clickable."""
-    btn = page.locator("button.btn-worker").nth(ACTION_INDEX[slug])
+    btn = page.locator(".strategy-tile").nth(ACTION_INDEX[slug])
     if not btn.is_visible():
         return False
     btn.click()
@@ -170,7 +170,7 @@ def run():
         click_action(page, "marketing");   time.sleep(0.2)
         click_action(page, "raise_funds"); time.sleep(0.2)
         # Bob
-        page.locator("#player-select").select_option(label="Bob"); time.sleep(0.4)
+        page.evaluate("switchPlayerByName(\"Bob\")"); time.sleep(0.4)
         click_action(page, "buy_chips");   time.sleep(0.2)
         click_action(page, "marketing");   time.sleep(0.2)
         click_action(page, "raise_funds"); time.sleep(0.2)
@@ -185,7 +185,7 @@ def run():
         print("\n=== ROUND 2: Train Model, Marketing, Scale Presence ===")
         # Active player is now whoever is first (rotated). Make sure to act for both.
         for pname in ("Alice", "Bob"):
-            page.locator("#player-select").select_option(label=pname); time.sleep(0.4)
+            page.evaluate(f"switchPlayerByName(\"{pname}\")"); time.sleep(0.4)
             click_action(page, "train_model");    time.sleep(0.2)
             click_action(page, "marketing");      time.sleep(0.2)
             # Scale Presence: opens region picker; click first valid region.
@@ -202,7 +202,7 @@ def run():
 
         print("\n=== ROUND 3: Increase Net Worth, Buy Chips, Train Model ===")
         for pname in ("Alice", "Bob"):
-            page.locator("#player-select").select_option(label=pname); time.sleep(0.4)
+            page.evaluate(f"switchPlayerByName(\"{pname}\")"); time.sleep(0.4)
             # First, make some funds: 1 raise_funds + 1 marketing + 1 increase_net_worth
             click_action(page, "increase_net_worth"); time.sleep(0.2)
             click_action(page, "buy_chips");          time.sleep(0.2)
@@ -215,7 +215,7 @@ def run():
 
         print("\n=== ROUND 4: Try all-different mix ===")
         for pname in ("Alice", "Bob"):
-            page.locator("#player-select").select_option(label=pname); time.sleep(0.4)
+            page.evaluate(f"switchPlayerByName(\"{pname}\")"); time.sleep(0.4)
             click_action(page, "marketing");   time.sleep(0.2)
             click_action(page, "marketing");   time.sleep(0.2)
             click_action(page, "raise_funds"); time.sleep(0.2)

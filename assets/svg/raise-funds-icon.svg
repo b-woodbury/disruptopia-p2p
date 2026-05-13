@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Raise funds" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Stacked coins, three tiers -->
+  <!-- Bottom coin -->
+  <ellipse cx="16" cy="26" rx="11" ry="3.2" fill="currentColor" fill-opacity="0.18"/>
+  <path d="M5 22.8 L 5 26 A 11 3.2 0 0 0 27 26 L 27 22.8" fill="currentColor" fill-opacity="0.18"/>
+  <ellipse cx="16" cy="22.8" rx="11" ry="3.2"/>
+  <!-- Middle coin -->
+  <path d="M7 16.6 L 7 19.6 A 9 2.8 0 0 0 25 19.6 L 25 16.6" fill="currentColor" fill-opacity="0.18"/>
+  <ellipse cx="16" cy="16.6" rx="9" ry="2.8"/>
+  <!-- Top coin with $ -->
+  <ellipse cx="16" cy="10.6" rx="7" ry="2.4" fill="currentColor" fill-opacity="0.18"/>
+  <path d="M9 10.6 L 9 13 A 7 2.4 0 0 0 23 13 L 23 10.6" fill="currentColor" fill-opacity="0.18"/>
+  <ellipse cx="16" cy="10.6" rx="7" ry="2.4"/>
+  <text x="16" y="13.2" text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="6.5" font-weight="bold" fill="currentColor" stroke="none">$</text>
+</svg>

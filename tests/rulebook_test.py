@@ -150,10 +150,10 @@ def run():
                 const e1 = Engine.executeScalePresence(s, p1.id, 2);  // 2 is adjacent to 1
                 const after1 = p1.presenceCount;
                 // Now at 2 regions, still Startup → should be blocked.
-                const e2 = Engine.executeScalePresence(s, p1.id, 7);  // 7 is adjacent to 2
+                const e2 = Engine.executeScalePresence(s, p1.id, 5);  // 5 (Cobalt Mine) is adjacent to 2 (El Dorado)
                 // Promote to Millionaire and try again.
                 p1.netWorthLevel = 1;
-                const e3 = Engine.executeScalePresence(s, p1.id, 7);
+                const e3 = Engine.executeScalePresence(s, p1.id, 5);
                 return {e1, e2, e3, presenceAfter: p1.presenceCount};
             })()
         """)
@@ -559,17 +559,17 @@ def run():
                 p1.netWorthLevel = 2;  // unblock Millionaire/Billionaire cap
                 p1.corporateFunds = 99;
                 // Scale to 3 presence (cost $1, $3 = $4 total).
-                // Find adjacent regions to p1's starting region 1.
-                Engine.executeScalePresence(s, p1.id, 2);  // adj to 1
-                Engine.executeScalePresence(s, p1.id, 7);  // adj to 2
+                // Path: start region 1 → 2 (adj to 1) → 6 (adj to 2 via Mexico).
+                Engine.executeScalePresence(s, p1.id, 2);
+                Engine.executeScalePresence(s, p1.id, 5);
                 const fundsBefore = p1.corporateFunds;
                 // Lose 2 presence (squeeze x2 via helper).
-                Engine.returnPresenceToBoard(p1, 7);
+                Engine.returnPresenceToBoard(p1, 5);
                 Engine.returnPresenceToBoard(p1, 2);
                 // Re-scale into adjacent regions twice.
                 Engine.executeScalePresence(s, p1.id, 2);
                 const fundsAfterFirst = p1.corporateFunds;
-                Engine.executeScalePresence(s, p1.id, 7);
+                Engine.executeScalePresence(s, p1.id, 5);
                 const fundsAfterSecond = p1.corporateFunds;
                 return {fundsBefore, fundsAfterFirst, fundsAfterSecond};
             })()

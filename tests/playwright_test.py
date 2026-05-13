@@ -126,9 +126,9 @@ def run_tests():
         user_name = page.locator("#user-name").inner_text()
         log_result("T2.5 Player name displayed", user_name == "Alice", user_name)
 
-        # T2.6: Player selector has 2 options
-        options = page.locator("#player-select option").count()
-        log_result("T2.6 Player selector has 2 players", options == 2, f"Got {options}")
+        # T2.6: Opponent switcher has 2 swatches (one per player)
+        options = page.locator("#opponent-switcher .opp-switch").count()
+        log_result("T2.6 Opponent switcher has 2 players", options == 2, f"Got {options}")
 
         # ════════════════════════════════════════════
         # TEST GROUP 3: INITIAL UI STATE
@@ -149,8 +149,8 @@ def run_tests():
         log_result("T3.4 Reputation shows '0/10'", "0" in reputation, reputation)
 
         # T3.5: Strategy board has 8 action rows
-        rows = page.locator("#strategy-rows tr").count()
-        log_result("T3.5 Strategy board has 8 action rows", rows == 8, f"Got {rows}")
+        rows = page.locator("#strategy-grid .strategy-tile").count()
+        log_result("T3.5 Strategy board has 8 action tiles", rows == 8, f"Got {rows}")
 
         # T3.6: Hand has cards (should have 3 from initial draw)
         hand_cards = page.locator("#player-hand > div").count()
@@ -221,7 +221,7 @@ def run_tests():
         js_errors.clear()
 
         # T5.1: Place worker on Marketing (should always be available)
-        marketing_btn = page.locator("button.btn-worker").nth(4)  # Marketing is 5th action
+        marketing_btn = page.locator(".strategy-tile").nth(4)  # Marketing is 5th action
         log_result("T5.1 Marketing '+' button visible", marketing_btn.is_visible())
 
         marketing_btn.click()
@@ -236,14 +236,14 @@ def run_tests():
         log_result("T5.3 Worker badge appears in Marketing row", "1" in badge_cell, badge_cell[:50])
 
         # T5.4: Place another worker on Raise Funds
-        raise_btn = page.locator("button.btn-worker").nth(7)  # Raise Funds is 8th
+        raise_btn = page.locator(".strategy-tile").nth(7)  # Raise Funds is 8th
         raise_btn.click()
         time.sleep(0.5)
         placements = page.evaluate("Game.localState.workerPlacements.length")
         log_result("T5.4 Second placement registered", placements == 2, f"Got {placements}")
 
         # T5.5: Place 3rd worker on Buy Chips
-        buy_btn = page.locator("button.btn-worker").nth(0)
+        buy_btn = page.locator(".strategy-tile").nth(0)
         buy_btn.click()
         time.sleep(0.5)
         placements = page.evaluate("Game.localState.workerPlacements.length")
@@ -251,7 +251,7 @@ def run_tests():
 
         # T5.6: No more workers should be available (3 workers, 3 placed)
         # The '+' buttons should be hidden
-        visible_btns = page.locator("button.btn-worker:visible").count()
+        visible_btns = page.locator(".strategy-tile:not(.unavailable)").count()
         log_result("T5.6 No more '+' buttons visible (all workers placed)", visible_btns == 0,
                    f"Still visible: {visible_btns}")
 
@@ -267,7 +267,7 @@ def run_tests():
                    f"{critical_errors[:3]}")
 
         # Re-place the 3rd worker for execution test
-        buy_btn = page.locator("button.btn-worker").nth(0)
+        buy_btn = page.locator(".strategy-tile").nth(0)
         buy_btn.click()
         time.sleep(0.5)
 
@@ -277,7 +277,7 @@ def run_tests():
         print("\n=== GROUP 6: Player Switching ===")
 
         # T6.1: Switch to Bob
-        page.locator("#player-select").select_option(label="Bob")
+        page.evaluate("switchPlayerByName(\"Bob\")")
         time.sleep(0.5)
         user_name = page.locator("#user-name").inner_text()
         log_result("T6.1 Switched to Bob", user_name == "Bob", user_name)
@@ -287,11 +287,11 @@ def run_tests():
         log_result("T6.2 Bob has 3 cards in hand", bob_hand == 3, f"Got {bob_hand}")
 
         # T6.3: Place workers for Bob
-        page.locator("button.btn-worker").nth(4).click()  # Marketing
+        page.locator(".strategy-tile").nth(4).click()  # Marketing
         time.sleep(0.3)
-        page.locator("button.btn-worker").nth(7).click()  # Raise Funds
+        page.locator(".strategy-tile").nth(7).click()  # Raise Funds
         time.sleep(0.3)
-        page.locator("button.btn-worker").nth(0).click()  # Buy Chips
+        page.locator(".strategy-tile").nth(0).click()  # Buy Chips
         time.sleep(0.5)
 
         bob_placements = page.evaluate("""
@@ -452,22 +452,22 @@ def run_tests():
 
         # T9.2: Header bar is not overflowing
         header_height = page.evaluate("document.getElementById('header-bar').offsetHeight")
-        log_result("T9.2 Header bar reasonable height", 20 < header_height < 80,
+        log_result("T9.2 Header bar reasonable height", 20 < header_height < 140,
                    f"Height: {header_height}px")
 
         # T9.3: Strategy panel is visible and has content
         strat_visible = page.locator("#strategy-panel").is_visible()
-        strat_rows = page.locator("#strategy-rows tr").count()
-        log_result("T9.3 Strategy panel visible with rows", strat_visible and strat_rows == 8,
-                   f"Visible: {strat_visible}, Rows: {strat_rows}")
+        strat_rows = page.locator("#strategy-grid .strategy-tile").count()
+        log_result("T9.3 Strategy panel visible with tiles", strat_visible and strat_rows == 8,
+                   f"Visible: {strat_visible}, Tiles: {strat_rows}")
 
-        # T9.4: Map wrapper has the background image
-        bg = page.evaluate("getComputedStyle(document.getElementById('world-map-wrapper')).backgroundImage")
-        log_result("T9.4 Map has background image", "WorldMap" in bg, bg[:60])
+        # T9.4: Map wrapper points at world-map.svg
+        src = page.evaluate("document.getElementById('world-map-svg').getAttribute('src') || ''")
+        log_result("T9.4 Map img loads world-map.svg", "world-map.svg" in src, src[:80])
 
-        # T9.5: Presence bubbles visible on map
-        bubbles = page.locator(".presence-bubble").count()
-        log_result("T9.5 Presence bubbles on map", bubbles >= 2, f"Got {bubbles}")
+        # T9.5: Presence tokens visible on map (one per player's starting region)
+        tokens = page.locator(".presence-token").count()
+        log_result("T9.5 Presence tokens on map", tokens >= 2, f"Got {tokens}")
 
         # T9.6: Hand panel shows cards
         hand_items = page.locator("#player-hand > div").count()

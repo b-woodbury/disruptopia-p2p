@@ -60,7 +60,7 @@ async function animateResolution(actionLog) {
 
     // Progress indicator
     const progressEl = document.createElement("div");
-    progressEl.style.cssText = "color:rgba(255,255,255,0.6); font-size:0.75rem; font-family:'Inter',system-ui,sans-serif; margin-bottom:12px; pointer-events:none;";
+    progressEl.style.cssText = "color:rgba(255,255,255,0.6); font-size:0.75rem; font-family:'Space Grotesk',system-ui,sans-serif; margin-bottom:12px; pointer-events:none;";
     cardContainer.appendChild(progressEl);
 
     // The action card display
@@ -72,7 +72,7 @@ async function animateResolution(actionLog) {
     // Skip button
     const skipBtn = document.createElement("button");
     skipBtn.innerText = "Skip Animations";
-    skipBtn.style.cssText = "margin-top:20px; padding:8px 20px; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:8px; cursor:pointer; font-family:'Inter',system-ui,sans-serif; font-size:0.75rem; font-weight:600; pointer-events:auto; transition:background 0.2s;";
+    skipBtn.style.cssText = "margin-top:20px; padding:8px 20px; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:8px; cursor:pointer; font-family:'Space Grotesk',system-ui,sans-serif; font-size:0.75rem; font-weight:600; pointer-events:auto; transition:background 0.2s;";
     skipBtn.onmouseenter = () => skipBtn.style.background = "rgba(255,255,255,0.25)";
     skipBtn.onmouseleave = () => skipBtn.style.background = "rgba(255,255,255,0.15)";
     skipBtn.onclick = () => { _animationSkipped = true; };
@@ -98,6 +98,18 @@ async function animateResolution(actionLog) {
 
         // Pulse stats in the header bar
         await pulseStatChanges(action.stat_changes);
+
+        // If this action is a card play, animate the slot:
+        //   action card  → "resolving-discard" (slide off-left, fades)
+        //   effect card  → "resolving-keep"    (pulse + settle into ACTIVE)
+        // The class is removed by the next refreshData() call, which re-renders
+        // the slot in its post-resolution state (empty for action, ACTIVE for effect).
+        if (action.action_type === 'play_card' && action.card_id != null && !_animationSkipped) {
+            const slotEl = document.querySelector(`.play-card[data-card-id="${action.card_id}"]`);
+            if (slotEl) {
+                slotEl.classList.add(action.card_is_effect ? 'resolving-keep' : 'resolving-discard');
+            }
+        }
 
         // Wait for card display duration (or skip)
         if (!_animationSkipped) {
@@ -130,7 +142,7 @@ async function animateResolution(actionLog) {
  * Builds and animates a single action card.
  */
 async function showActionCard(cardEl, action, index) {
-    const playerColor = PLAYER_COLORS[action.player_id] || "#4f46e5";
+    const playerColor = PLAYER_COLORS[action.player_id] || "#818cf8";
     const icon = ACTION_ICONS[action.action_type] || "\u2699\ufe0f";
     // Determine text color for player name based on background brightness
     const nameTextColor = isLightColor(playerColor) ? "#1e1b18" : "#ffffff";
@@ -139,7 +151,7 @@ async function showActionCard(cardEl, action, index) {
 
     // Player name badge
     html += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-        <span style="background:${playerColor}; color:${nameTextColor}; padding:4px 12px; border-radius:6px; font-weight:700; font-size:0.85rem; font-family:'Fredoka',cursive;">${action.player_name}</span>
+        <span style="background:${playerColor}; color:${nameTextColor}; padding:4px 12px; border-radius:6px; font-weight:700; font-size:0.85rem; font-family:'Space Grotesk',system-ui,sans-serif;">${action.player_name}</span>
         <span style="font-size:1.4rem;">${icon}</span>
     </div>`;
 
@@ -166,13 +178,13 @@ async function showActionCard(cardEl, action, index) {
         action.targets.forEach(t => {
             if (t.player_name) {
                 html += `<div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:6px; padding:6px 10px; margin-bottom:6px;">
-                    <span style="color:#dc2626; font-weight:700; font-size:0.75rem;">TARGET:</span>
-                    <span style="color:#dc2626; font-weight:600; font-size:0.75rem;"> ${t.player_name}</span>
+                    <span style="color:#f87171; font-weight:700; font-size:0.75rem;">TARGET:</span>
+                    <span style="color:#f87171; font-weight:600; font-size:0.75rem;"> ${t.player_name}</span>
                 </div>`;
             } else if (t.region_id) {
                 html += `<div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:6px; padding:6px 10px; margin-bottom:6px;">
-                    <span style="color:#dc2626; font-weight:700; font-size:0.75rem;">TARGET:</span>
-                    <span style="color:#dc2626; font-weight:600; font-size:0.75rem;"> Region ${t.region_id}</span>
+                    <span style="color:#f87171; font-weight:700; font-size:0.75rem;">TARGET:</span>
+                    <span style="color:#f87171; font-weight:600; font-size:0.75rem;"> Region ${t.region_id}</span>
                 </div>`;
             }
         });
@@ -187,7 +199,7 @@ async function showActionCard(cardEl, action, index) {
         myChanges.forEach(c => {
             const label = STAT_LABELS[c.stat] || c.stat;
             const isPositive = c.delta > 0;
-            const color = isPositive ? "#16a34a" : "#dc2626";
+            const color = isPositive ? "#4ade80" : "#f87171";
             const sign = isPositive ? "+" : "";
             const prefix = c.stat.includes("funds") ? "$" : "";
             html += `<span class="stat-change-badge" style="color:${color}; background:${isPositive ? '#f0fdf4' : '#fef2f2'}; border:1px solid ${isPositive ? '#bbf7d0' : '#fca5a5'}; padding:3px 8px; border-radius:6px; font-size:0.7rem; font-weight:700;">${sign}${prefix}${c.delta} ${label}</span>`;
@@ -209,7 +221,7 @@ async function showActionCard(cardEl, action, index) {
             changes.forEach(c => {
                 const label = STAT_LABELS[c.stat] || c.stat;
                 const isPositive = c.delta > 0;
-                const color = isPositive ? "#16a34a" : "#dc2626";
+                const color = isPositive ? "#4ade80" : "#f87171";
                 const sign = isPositive ? "+" : "";
                 const prefix = c.stat.includes("funds") ? "$" : "";
                 html += `<span style="color:${color}; font-size:0.65rem; font-weight:600;">${sign}${prefix}${c.delta} ${label}</span>`;
@@ -221,7 +233,7 @@ async function showActionCard(cardEl, action, index) {
     // Card destination indicator
     if (action.action_type === "play_card" && action.card_name) {
         if (action.card_is_effect) {
-            html += `<div style="margin-top:8px; font-size:0.65rem; color:#d97706; font-weight:600;">&#8594; Active Effect Slot</div>`;
+            html += `<div style="margin-top:8px; font-size:0.65rem; color:#fbbf24; font-weight:600;">&#8594; Active Effect Slot</div>`;
         } else {
             html += `<div style="margin-top:8px; font-size:0.65rem; color:#78716c; font-weight:600;">&#8594; Discarded</div>`;
         }
@@ -269,7 +281,7 @@ async function showRoundCompleteBanner(cardEl, progressEl, round) {
 
     cardEl.innerHTML = `
         <div style="text-align:center; padding:20px;">
-            <div style="font-family:'Fredoka',cursive; font-size:1.5rem; color:#4f46e5; margin-bottom:10px;">Round ${round} Complete!</div>
+            <div style="font-family:'Space Grotesk',system-ui,sans-serif; font-size:1.5rem; font-weight:600; color:#818cf8; margin-bottom:10px;">Round ${round} Complete!</div>
             <div style="font-size:0.8rem; color:#78716c;">Preparing next round...</div>
         </div>
     `;

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Disruptopia World Map — Bubble Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#4f46e5; --accent:#7c3aed;
+    --cream:#f0ece3; --card:#faf7f2; --border:#d4c9b8;
+    --text:#1e1b18; --muted:#78716c;
+    --money:#16a34a; --subsidy:#d97706;
+    --p-red:#ef4444; --p-blue:#3b82f6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Space Grotesk',sans-serif;
+    background:var(--cream);
+    color:var(--text);
+    display:flex;flex-direction:column;
+    min-height:100vh;
+  }
+  header{
+    background:linear-gradient(90deg,var(--primary),var(--accent));
+    color:#fff;
+    padding:18px 28px;
+    box-shadow:0 2px 10px rgba(0,0,0,.1);
+  }
+  header h1{font-weight:700;font-size:22px;letter-spacing:.3px}
+  header p{font-weight:400;font-size:13px;opacity:.85;margin-top:4px}
+  main{
+    flex:1;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:24px;
+  }
+  .map-wrap{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:18px;
+    box-shadow:0 8px 30px rgba(30,27,24,.08);
+    padding:18px;
+    position:relative;
+    width:100%;
+    max-width:1080px;
+  }
+  svg.map{display:block;width:100%;height:auto}
+
+  /* bubble look */
+  .bubble{cursor:pointer;transition:transform .18s ease, filter .18s ease;transform-origin:center;transform-box:fill-box}
+  .bubble:hover{transform:scale(1.07);filter:drop-shadow(0 6px 14px rgba(79,70,229,.35))}
+  .bubble-label{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;font-size:12px;
+    fill:var(--text);
+    pointer-events:none;
+    text-anchor:middle;
+  }
+  .bubble-idx{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;font-size:11px;
+    fill:#fff;
+    pointer-events:none;
+    text-anchor:middle;
+  }
+  .adj-line{
+    stroke:#9aa0a6;
+    stroke-width:1.6;
+    fill:none;
+    stroke-dasharray:4 4;
+    opacity:.55;
+  }
+
+  /* legend */
+  .legend{
+    position:absolute;
+    right:30px;
+    bottom:30px;
+    background:rgba(250,247,242,.95);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px 14px;
+    font-size:12px;
+    line-height:1.6;
+    box-shadow:0 4px 14px rgba(0,0,0,.06);
+  }
+  .legend h3{font-size:13px;font-weight:700;margin-bottom:6px;color:var(--primary)}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .swatch{width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+  .swatch.red{background:var(--p-red)}
+  .swatch.blue{background:var(--p-blue)}
+  .swatch.sub{background:var(--subsidy);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:9px;border:none}
+  .swatch.line{width:18px;height:0;border:none;border-top:1.6px dashed #9aa0a6;border-radius:0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Disruptopia World Map &mdash; Bubble Concept</h1>
+  <p>Node-graph prototype &middot; 10 regions &middot; adjacency-based movement</p>
+</header>
+<main>
+  <div class="map-wrap">
+    <svg class="map" viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- per-region radial gradients -->
+        <radialGradient id="g0" cx="40%" cy="35%"><stop offset="0%" stop-color="#a5b4fc"/><stop offset="100%" stop-color="#4f46e5"/></radialGradient>
+        <radialGradient id="g1" cx="40%" cy="35%"><stop offset="0%" stop-color="#c4b5fd"/><stop offset="100%" stop-color="#7c3aed"/></radialGradient>
+        <radialGradient id="g2" cx="40%" cy="35%"><stop offset="0%" stop-color="#fda4af"/><stop offset="100%" stop-color="#e11d48"/></radialGradient>
+        <radialGradient id="g3" cx="40%" cy="35%"><stop offset="0%" stop-color="#fdba74"/><stop offset="100%" stop-color="#ea580c"/></radialGradient>
+        <radialGradient id="g4" cx="40%" cy="35%"><stop offset="0%" stop-color="#86efac"/><stop offset="100%" stop-color="#16a34a"/></radialGradient>
+        <radialGradient id="g5" cx="40%" cy="35%"><stop offset="0%" stop-color="#6ee7b7"/><stop offset="100%" stop-color="#0d9488"/></radialGradient>
+        <radialGradient id="g6" cx="40%" cy="35%"><stop offset="0%" stop-color="#7dd3fc"/><stop offset="100%" stop-color="#0284c7"/></radialGradient>
+        <radialGradient id="g7" cx="40%" cy="35%"><stop offset="0%" stop-color="#fcd34d"/><stop offset="100%" stop-color="#d97706"/></radialGradient>
+        <radialGradient id="g8" cx="40%" cy="35%"><stop offset="0%" stop-color="#f9a8d4"/><stop offset="100%" stop-color="#be185d"/></radialGradient>
+        <radialGradient id="g9" cx="40%" cy="35%"><stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#b45309"/></radialGradient>
+
+        <!-- subtle hatched ocean background -->
+        <pattern id="ocean" width="22" height="22" patternUnits="userSpaceOnUse">
+          <rect width="22" height="22" fill="#faf7f2"/>
+          <circle cx="2" cy="2" r="0.9" fill="#e5dccb"/>
+        </pattern>
+      </defs>
+
+      <rect x="0" y="0" width="1000" height="620" fill="url(#ocean)" rx="14"/>
+
+      <!-- ADJACENCY LINES (drawn first, behind bubbles) -->
+      <!-- Coordinates of each region center -->
+      <!-- 0 NW Americas (140,170)  1 NE Americas (290,180)  2 W Europe (490,160)
+           3 E Europe (640,160)     4 NE Asia    (840,170)   5 W Americas (210,310)
+           6 S America (310,490)    7 Africa     (520,480)   8 Middle East (640,330)
+           9 SE Asia    (820,340)
+      -->
+      <g class="adjacencies">
+        <!-- 0-1 -->
+        <path class="adj-line" d="M 140 170 Q 215 140 290 180"/>
+        <!-- 0-5 -->
+        <path class="adj-line" d="M 140 170 Q 150 240 210 310"/>
+        <!-- 1-2 -->
+        <path class="adj-line" d="M 290 180 Q 390 130 490 160"/>
+        <!-- 1-6 -->
+        <path class="adj-line" d="M 290 180 Q 270 340 310 490"/>
+        <!-- 2-3 -->
+        <path class="adj-line" d="M 490 160 Q 565 130 640 160"/>
+        <!-- 2-7 -->
+        <path class="adj-line" d="M 490 160 Q 460 320 520 480"/>
+        <!-- 3-4 -->
+        <path class="adj-line" d="M 640 160 Q 740 130 840 170"/>
+        <!-- 3-8 -->
+        <path class="adj-line" d="M 640 160 Q 660 240 640 330"/>
+        <!-- 4-9 -->
+        <path class="adj-line" d="M 840 170 Q 860 250 820 340"/>
+        <!-- 5-6 -->
+        <path class="adj-line" d="M 210 310 Q 230 400 310 490"/>
+        <!-- 6-7 -->
+        <path class="adj-line" d="M 310 490 Q 415 510 520 480"/>
+        <!-- 7-8 -->
+        <path class="adj-line" d="M 520 480 Q 600 410 640 330"/>
+        <!-- 8-9 -->
+        <path class="adj-line" d="M 640 330 Q 730 320 820 340"/>
+      </g>
+
+      <!-- BUBBLES -->
+      <g class="bubbles">
+        <g class="bubble" onclick="alert('NW Americas (region 0)')">
+          <circle cx="140" cy="170" r="46" fill="url(#g0)" stroke="#fff" stroke-width="2"/>
+          <circle cx="140" cy="153" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="140" y="157">0</text>
+          <text class="bubble-label" x="140" y="180" fill="#fff">NW Americas</text>
+        </g>
+        <g class="bubble" onclick="alert('NE Americas (region 1)')">
+          <circle cx="290" cy="180" r="46" fill="url(#g1)" stroke="#fff" stroke-width="2"/>
+          <circle cx="290" cy="163" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="290" y="167">1</text>
+          <text class="bubble-label" x="290" y="190" fill="#fff">NE Americas</text>
+        </g>
+        <g class="bubble" onclick="alert('W Europe (region 2)')">
+          <circle cx="490" cy="160" r="46" fill="url(#g2)" stroke="#fff" stroke-width="2"/>
+          <circle cx="490" cy="143" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="490" y="147">2</text>
+          <text class="bubble-label" x="490" y="170" fill="#fff">W Europe</text>
+        </g>
+        <g class="bubble" onclick="alert('E Europe (region 3)')">
+          <circle cx="640" cy="160" r="46" fill="url(#g3)" stroke="#fff" stroke-width="2"/>
+          <circle cx="640" cy="143" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="640" y="147">3</text>
+          <text class="bubble-label" x="640" y="170" fill="#fff">E Europe</text>
+        </g>
+        <g class="bubble" onclick="alert('NE Asia (region 4)')">
+          <circle cx="840" cy="170" r="46" fill="url(#g4)" stroke="#fff" stroke-width="2"/>
+          <circle cx="840" cy="153" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="840" y="157">4</text>
+          <text class="bubble-label" x="840" y="180" fill="#fff">NE Asia</text>
+        </g>
+        <g class="bubble" onclick="alert('W Americas (region 5)')">
+          <circle cx="210" cy="310" r="46" fill="url(#g5)" stroke="#fff" stroke-width="2"/>
+          <circle cx="210" cy="293" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="210" y="297">5</text>
+          <text class="bubble-label" x="210" y="320" fill="#fff">W Americas</text>
+        </g>
+        <g class="bubble" onclick="alert('S America (region 6)')">
+          <circle cx="310" cy="490" r="46" fill="url(#g6)" stroke="#fff" stroke-width="2"/>
+          <circle cx="310" cy="473" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="310" y="477">6</text>
+          <text class="bubble-label" x="310" y="500" fill="#fff">S America</text>
+        </g>
+        <g class="bubble" onclick="alert('Africa (region 7)')">
+          <circle cx="520" cy="480" r="46" fill="url(#g7)" stroke="#fff" stroke-width="2"/>
+          <circle cx="520" cy="463" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="520" y="467">7</text>
+          <text class="bubble-label" x="520" y="490" fill="#fff">Africa</text>
+        </g>
+        <g class="bubble" onclick="alert('Middle East (region 8)')">
+          <circle cx="640" cy="330" r="46" fill="url(#g8)" stroke="#fff" stroke-width="2"/>
+          <circle cx="640" cy="313" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="640" y="317">8</text>
+          <text class="bubble-label" x="640" y="340" fill="#fff">Middle East</text>
+        </g>
+        <g class="bubble" onclick="alert('SE Asia (region 9)')">
+          <circle cx="820" cy="340" r="46" fill="url(#g9)" stroke="#fff" stroke-width="2"/>
+          <circle cx="820" cy="323" r="11" fill="rgba(0,0,0,.18)"/>
+          <text class="bubble-idx" x="820" y="327">9</text>
+          <text class="bubble-label" x="820" y="350" fill="#fff">SE Asia</text>
+        </g>
+      </g>
+
+      <!-- PLAYER PRESENCE MARKERS -->
+      <!-- Red on NW Americas (2 stacked) -->
+      <g class="presence" pointer-events="none">
+        <circle cx="120" cy="210" r="9" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+        <circle cx="135" cy="216" r="9" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+        <!-- Blue on W Europe -->
+        <circle cx="470" cy="200" r="9" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+        <!-- Blue + Red contested on Middle East -->
+        <circle cx="620" cy="370" r="9" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+        <circle cx="640" cy="375" r="9" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+      </g>
+
+      <!-- SUBSIDY TOKEN on SE Asia -->
+      <g pointer-events="none">
+        <circle cx="855" cy="305" r="13" fill="#d97706" stroke="#fff" stroke-width="2"/>
+        <text x="855" y="310" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">S</text>
+      </g>
+    </svg>
+
+    <div class="legend">
+      <h3>Legend</h3>
+      <div class="row"><span class="swatch red"></span><span>Player 1 presence</span></div>
+      <div class="row"><span class="swatch blue"></span><span>Player 2 presence</span></div>
+      <div class="row"><span class="swatch sub">S</span><span>Subsidy token</span></div>
+      <div class="row"><span class="swatch line"></span><span>Region adjacency</span></div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

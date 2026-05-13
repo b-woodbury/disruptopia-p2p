@@ -224,9 +224,9 @@ def parse_json_block(text):
 # ─────────────────────────────────────────────────────────────────────
 
 REGION_NAMES = [
-    "North America", "Central America", "South America", "Europe",
-    "North Africa", "Sub-Saharan Africa", "Middle East", "Eastern Russia",
-    "South Asia", "East Asia",
+    "Silicon Valley", "El Dorado", "Spotify", "Yacht Goes Here",
+    "The Cobalt Mine", "The Bot Farm", "PhDistan", "The Fab",
+    "Coworking Bali", "Post-Apocalypse Bunkers",
 ]
 
 
@@ -383,10 +383,22 @@ PERSONAS = [
 ]
 
 
+_PERSONA_OVERRIDE = os.getenv("AGENT_PERSONA", "").strip()
+
+
 def persona_for(player_idx):
-    """Return (label, prompt_addition) for seat player_idx (0-based)."""
+    """Return (label, prompt_addition) for seat player_idx (0-based).
+
+    If AGENT_PERSONA is set, every seat uses that single persona — useful
+    for head-to-head model comparisons where you want the only varying
+    factor to be the model itself.
+    """
     if not USE_PERSONAS:
         return (f"Player {player_idx+1}", "")
+    if _PERSONA_OVERRIDE:
+        for label, prompt in PERSONAS:
+            if label.lower() == _PERSONA_OVERRIDE.lower():
+                return (label, prompt)
     return PERSONAS[player_idx % len(PERSONAS)]
 
 
@@ -1173,7 +1185,7 @@ def run():
                 # In this local game, all seats share the same UI/state.
                 # Switch the dashboard to whichever player is acting.
                 player_name = page.evaluate(f"Game.localState.players[{pid_idx}].userName")
-                page.locator("#player-select").select_option(label=player_name)
+                page.evaluate(f"switchPlayerByName(\"{player_name}\")")
                 time.sleep(0.2)
                 t0 = time.time()
                 if BRIDGE_PARALLEL:

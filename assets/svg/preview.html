@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Disruptopia P2P — SVG Asset Preview</title>
+<style>
+  :root {
+    --bg: #f0ece3;
+    --card: #faf7f2;
+    --border: #d4c9b8;
+    --text: #1e1b18;
+    --muted: #78716c;
+    --indigo: #4f46e5;
+    --player-1: #ef4444;
+    --player-2: #3b82f6;
+    --player-3: #10b981;
+    --player-4: #eab308;
+    --player-5: #a855f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    padding: 32px;
+    line-height: 1.4;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    color: var(--indigo);
+    letter-spacing: -0.5px;
+  }
+  .lead {
+    color: var(--muted);
+    margin: 0 0 32px;
+    max-width: 640px;
+  }
+  h2 {
+    margin: 40px 0 16px;
+    font-size: 18px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(30, 27, 24, 0.04);
+  }
+  .card .stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 96px;
+    width: 100%;
+  }
+  .card .label {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    word-break: break-word;
+  }
+  .card .filename {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--indigo);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .card.wide {
+    grid-column: 1 / -1;
+  }
+  .card.tall .stage {
+    min-height: 280px;
+  }
+  .sizes {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .players {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .player-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+  }
+  .player-1 { color: var(--player-1); }
+  .player-2 { color: var(--player-2); }
+  .player-3 { color: var(--player-3); }
+  .player-4 { color: var(--player-4); }
+  .player-5 { color: var(--player-5); }
+  .palette {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .swatch .chip {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+  /*
+    For currentColor swapping to work, the SVG must be embedded inline OR via
+    <object>. <img> renders the SVG but does not let the host page reach into
+    its DOM. We therefore use inline-style <object> for player-tinted assets.
+    A small JS shim inlines them after load so currentColor flows correctly.
+  */
+</style>
+</head>
+<body>
+
+<h1>Disruptopia P2P — SVG Asset Preview</h1>
+<p class="lead">All hand-coded SVG assets rendered on the in-game cream
+background. Player-tinted assets (workers, presence flag, action icons) use
+<code>currentColor</code> — see the player-tint row below each one for the
+five player colors.</p>
+
+<h2>Palette</h2>
+<div class="palette">
+  <div class="swatch"><div class="chip" style="background:#4f46e5"></div>indigo</div>
+  <div class="swatch"><div class="chip" style="background:#7c3aed"></div>violet</div>
+  <div class="swatch"><div class="chip" style="background:#f0ece3"></div>bg cream</div>
+  <div class="swatch"><div class="chip" style="background:#faf7f2"></div>card cream</div>
+  <div class="swatch"><div class="chip" style="background:#d4c9b8"></div>tan</div>
+  <div class="swatch"><div class="chip" style="background:#1e1b18"></div>text</div>
+  <div class="swatch"><div class="chip" style="background:#78716c"></div>muted</div>
+  <div class="swatch"><div class="chip" style="background:#16a34a"></div>money</div>
+  <div class="swatch"><div class="chip" style="background:#d97706"></div>gold</div>
+  <div class="swatch"><div class="chip" style="background:#dc2626"></div>warn</div>
+  <div class="swatch"><div class="chip" style="background:#ef4444"></div>P1</div>
+  <div class="swatch"><div class="chip" style="background:#3b82f6"></div>P2</div>
+  <div class="swatch"><div class="chip" style="background:#10b981"></div>P3</div>
+  <div class="swatch"><div class="chip" style="background:#eab308"></div>P4</div>
+  <div class="swatch"><div class="chip" style="background:#a855f7"></div>P5</div>
+</div>
+
+<h2>Worker Tokens (player-tinted)</h2>
+<div class="grid">
+  <div class="card">
+    <div class="stage">
+      <div class="players">
+        <span class="player-swatch player-1" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-2" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-3" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-4" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-5" data-inline-svg="worker-token.svg"></span>
+      </div>
+    </div>
+    <div class="label">Generic worker — all 5 players</div>
+    <div class="filename">worker-token.svg</div>
+  </div>
+
+<div class="card wide">
+    <div class="stage">
+      <div class="sizes">
+        <span class="player-swatch player-2" style="width:24px;height:24px" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-2" style="width:32px;height:32px" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-2" style="width:48px;height:48px" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-2" style="width:64px;height:64px" data-inline-svg="worker-token.svg"></span>
+        <span class="player-swatch player-2" style="width:96px;height:96px" data-inline-svg="worker-token.svg"></span>
+      </div>
+    </div>
+    <div class="label">Size sweep (24, 32, 48, 64, 96px) — player 2 blue</div>
+    <div class="filename">worker-token.svg</div>
+  </div>
+</div>
+
+<h2>Tokens &amp; Markers</h2>
+<div class="grid">
+  <div class="card">
+    <div class="stage"><img src="./subsidy-token.svg" width="48" height="48" alt="subsidy"></div>
+    <div class="label">Gold subsidy coin</div>
+    <div class="filename">subsidy-token.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage">
+      <div class="players">
+        <span class="player-swatch player-1" style="width:32px;height:32px" data-inline-svg="presence-flag.svg"></span>
+        <span class="player-swatch player-2" style="width:32px;height:32px" data-inline-svg="presence-flag.svg"></span>
+        <span class="player-swatch player-3" style="width:32px;height:32px" data-inline-svg="presence-flag.svg"></span>
+        <span class="player-swatch player-4" style="width:32px;height:32px" data-inline-svg="presence-flag.svg"></span>
+        <span class="player-swatch player-5" style="width:32px;height:32px" data-inline-svg="presence-flag.svg"></span>
+      </div>
+    </div>
+    <div class="label">Presence flag — all 5 players</div>
+    <div class="filename">presence-flag.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><img src="./p1-crown.svg" width="48" height="48" alt="first player crown"></div>
+    <div class="label">First-player crown</div>
+    <div class="filename">p1-crown.svg</div>
+  </div>
+</div>
+
+<h2>Card Backs</h2>
+<div class="grid">
+  <div class="card tall">
+    <div class="stage"><img src="./card-back-research.svg" width="160" height="224" alt="research card back"></div>
+    <div class="label">Research deck back</div>
+    <div class="filename">card-back-research.svg</div>
+  </div>
+  <div class="card tall">
+    <div class="stage"><img src="./card-back-influence.svg" width="160" height="224" alt="influence card back"></div>
+    <div class="label">Influence deck back</div>
+    <div class="filename">card-back-influence.svg</div>
+  </div>
+  <div class="card tall">
+    <div class="stage"><img src="./card-back-sabotage.svg" width="160" height="224" alt="sabotage card back"></div>
+    <div class="label">Sabotage deck back</div>
+    <div class="filename">card-back-sabotage.svg</div>
+  </div>
+</div>
+
+<h2>VP Track</h2>
+<div class="grid">
+  <div class="card wide">
+    <div class="stage" style="min-height: 80px;">
+      <img src="./vp-track.svg" style="width:100%;max-width:720px;height:auto;" alt="VP track">
+    </div>
+    <div class="label">Victory Points 0–30 with milestone markers at every 5</div>
+    <div class="filename">vp-track.svg</div>
+  </div>
+</div>
+
+<h2>Action Icons (player-tinted)</h2>
+<div class="grid">
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="train-model-icon.svg"></span></div>
+    <div class="label">Train model</div>
+    <div class="filename">train-model-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="buy-chips-icon.svg"></span></div>
+    <div class="label">Buy chips</div>
+    <div class="filename">buy-chips-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="recruit-icon.svg"></span></div>
+    <div class="label">Recruit</div>
+    <div class="filename">recruit-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="marketing-icon.svg"></span></div>
+    <div class="label">Marketing</div>
+    <div class="filename">marketing-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="scale-presence-icon.svg"></span></div>
+    <div class="label">Scale presence</div>
+    <div class="filename">scale-presence-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="raise-funds-icon.svg"></span></div>
+    <div class="label">Raise funds</div>
+    <div class="filename">raise-funds-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="play-card-icon.svg"></span></div>
+    <div class="label">Play card</div>
+    <div class="filename">play-card-icon.svg</div>
+  </div>
+  <div class="card">
+    <div class="stage"><span class="player-swatch" style="color:#1e1b18;width:48px;height:48px" data-inline-svg="increase-net-worth-icon.svg"></span></div>
+    <div class="label">Increase net worth</div>
+    <div class="filename">increase-net-worth-icon.svg</div>
+  </div>
+
+  <div class="card wide">
+    <div class="stage">
+      <div class="players">
+        <span class="player-swatch player-1" data-inline-svg="raise-funds-icon.svg"></span>
+        <span class="player-swatch player-2" data-inline-svg="raise-funds-icon.svg"></span>
+        <span class="player-swatch player-3" data-inline-svg="raise-funds-icon.svg"></span>
+        <span class="player-swatch player-4" data-inline-svg="raise-funds-icon.svg"></span>
+        <span class="player-swatch player-5" data-inline-svg="raise-funds-icon.svg"></span>
+      </div>
+    </div>
+    <div class="label">Tint demo: raise-funds icon in each player color</div>
+    <div class="filename">raise-funds-icon.svg</div>
+  </div>
+</div>
+
+<script>
+  // Tiny shim: fetch SVG files and inline them so currentColor inherits from
+  // the parent element's CSS color. This is required because <img src=svg>
+  // does not allow currentColor to flow in from the host page.
+  (async function inlineSvgs() {
+    const nodes = document.querySelectorAll('[data-inline-svg]');
+    const cache = new Map();
+    for (const el of nodes) {
+      const file = el.getAttribute('data-inline-svg');
+      try {
+        let text = cache.get(file);
+        if (!text) {
+          const res = await fetch('./' + file);
+          text = await res.text();
+          cache.set(file, text);
+        }
+        // Strip XML declaration if any
+        text = text.replace(/<\?xml[^>]*\?>/, '').trim();
+        el.innerHTML = text;
+        const svg = el.querySelector('svg');
+        if (svg) {
+          svg.setAttribute('width', '100%');
+          svg.setAttribute('height', '100%');
+          svg.style.display = 'block';
+        }
+      } catch (e) {
+        el.textContent = '[load fail: ' + file + ']';
+      }
+    }
+  })();
+</script>
+
+</body>
+</html>

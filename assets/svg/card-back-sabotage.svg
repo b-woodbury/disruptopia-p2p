@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 280" width="200" height="280" role="img" aria-label="Sabotage card back">
+  <defs>
+    <linearGradient id="sbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b91c1c"/>
+      <stop offset="0.55" stop-color="#dc2626"/>
+      <stop offset="1" stop-color="#7f1d1d"/>
+    </linearGradient>
+    <radialGradient id="sglow" cx="0.5" cy="0.4" r="0.65">
+      <stop offset="0" stop-color="#fca5a5" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#7f1d1d" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="sgrid" x="0" y="0" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="14" stroke="#7f1d1d" stroke-width="0.8" stroke-opacity="0.5"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="0" width="200" height="280" rx="14" fill="url(#sbg)"/>
+  <rect x="0" y="0" width="200" height="280" rx="14" fill="url(#sgrid)"/>
+  <rect x="0" y="0" width="200" height="280" rx="14" fill="url(#sglow)"/>
+  <rect x="8" y="8" width="184" height="264" rx="9" fill="none" stroke="#faf7f2" stroke-width="1.2" stroke-opacity="0.55"/>
+  <rect x="12" y="12" width="176" height="256" rx="7" fill="none" stroke="#faf7f2" stroke-width="0.6" stroke-opacity="0.3"/>
+
+  <!-- Domino mask icon -->
+  <g transform="translate(100 130)" stroke="#1e1b18" stroke-width="1.5" stroke-linejoin="round">
+    <!-- Mask body -->
+    <path d="M-58 -10 Q -58 -28 -40 -28 Q -22 -28 -8 -16 Q 0 -10 8 -16 Q 22 -28 40 -28 Q 58 -28 58 -10 Q 58 12 36 22 Q 18 30 6 18 Q 0 12 -6 18 Q -18 30 -36 22 Q -58 12 -58 -10 Z"
+          fill="#1e1b18"/>
+    <!-- Eye holes -->
+    <ellipse cx="-30" cy="-6" rx="14" ry="9" fill="#faf7f2"/>
+    <ellipse cx="30" cy="-6" rx="14" ry="9" fill="#faf7f2"/>
+    <!-- Pupils -->
+    <circle cx="-28" cy="-4" r="3.5" fill="#dc2626"/>
+    <circle cx="32" cy="-4" r="3.5" fill="#dc2626"/>
+    <!-- Tie strap (small ribbons) -->
+    <path d="M-58 -8 L -68 -14 L -66 0 Z" fill="#7f1d1d"/>
+    <path d="M58 -8 L 68 -14 L 66 0 Z" fill="#7f1d1d"/>
+  </g>
+
+  <!-- Smoke / wisps for atmosphere -->
+  <g fill="#faf7f2" fill-opacity="0.12">
+    <ellipse cx="50" cy="60" rx="20" ry="6"/>
+    <ellipse cx="150" cy="80" rx="22" ry="5"/>
+    <ellipse cx="80" cy="200" rx="18" ry="5"/>
+    <ellipse cx="140" cy="190" rx="16" ry="4"/>
+  </g>
+
+  <!-- Title banner -->
+  <rect x="20" y="232" width="160" height="30" rx="4" fill="#7f1d1d" stroke="#faf7f2" stroke-width="0.8" stroke-opacity="0.6"/>
+  <text x="100" y="252" text-anchor="middle"
+        font-family="'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="16" font-weight="bold" fill="#fef2f2" letter-spacing="3">SABOTAGE</text>
+
+  <!-- Corner accents -->
+  <g fill="#fecaca" fill-opacity="0.75">
+    <circle cx="20" cy="20" r="2.5"/>
+    <circle cx="180" cy="20" r="2.5"/>
+    <circle cx="20" cy="220" r="2.5"/>
+    <circle cx="180" cy="220" r="2.5"/>
+  </g>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Increase net worth" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Axes -->
+  <path d="M5 5 L 5 27 L 28 27" stroke-width="1.8"/>
+  <!-- Bars, ascending -->
+  <rect x="8"  y="20" width="4" height="7"  fill="currentColor" fill-opacity="0.35"/>
+  <rect x="14" y="15" width="4" height="12" fill="currentColor" fill-opacity="0.55"/>
+  <rect x="20" y="9"  width="4" height="18" fill="currentColor" fill-opacity="0.8"/>
+  <!-- Trend arrow over the bars -->
+  <path d="M8 19 L 16 14 L 22 11 L 27 6" stroke-width="1.6"/>
+  <path d="M27 6 L 27 11 M27 6 L 22 6" stroke-width="1.6"/>
+</svg>

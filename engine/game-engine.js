@@ -942,11 +942,21 @@ const Engine = {
         // most-expensive-empty-slot model so multi-loss-then-rebuy
         // sequences charge the right slot).
         this.recruitWorkerFromBoard(player);
-        state.workerPlacements.push({
-            playerId, workerNumber: slot, actionType: targetAction,
-            targetRegion: targetRegion || null, targetCardId: targetCardId || null, targetSubAction: null,
-        });
-        return {action: "worker_recruited", new_total: player.totalWorkers, placed_at: targetAction};
+        // Only auto-place the new worker if (a) the player gave it a target
+        // and (b) they didn't already pre-place a placement for this worker
+        // number themselves (e.g. by clicking a tile after Recruit).
+        const existing = state.workerPlacements.find(wp => wp.playerId === playerId && wp.workerNumber === slot);
+        let placedAt = null;
+        if (!existing && targetAction) {
+            state.workerPlacements.push({
+                playerId, workerNumber: slot, actionType: targetAction,
+                targetRegion: targetRegion || null, targetCardId: targetCardId || null, targetSubAction: null,
+            });
+            placedAt = targetAction;
+        } else if (existing) {
+            placedAt = existing.actionType;
+        }
+        return {action: "worker_recruited", new_total: player.totalWorkers, placed_at: placedAt};
     },
 
     executeRaiseFundsSequence(state, playerId, chunks) {
@@ -1268,7 +1278,7 @@ const Engine = {
                     action_type: p.actionType, worker_number: p.workerNumber,
                     result_message: this._buildResultMessage(p.actionType, result, player.userName, cardName),
                     stat_changes: allStatChanges,
-                    card_name: cardName, card_image: cardImage, card_is_effect: cardIsEffect, targets,
+                    card_id: p.targetCardId, card_name: cardName, card_image: cardImage, card_is_effect: cardIsEffect, targets,
                 });
                 for (const w of groupWorkers) resolved.add(w.workerNumber);
             }

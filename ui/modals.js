@@ -42,9 +42,9 @@ function promptDiscardModal(player, limit) {
         const imgPath = card.image_file ? `assets/${card.image_file}` : '';
         const isInternProtected = card.effect_slug === 'intern_program';
         const w = document.createElement('div');
-        w.style.cssText = `cursor:${isInternProtected ? 'not-allowed' : 'pointer'}; border:2px solid ${isInternProtected ? '#d4c9b8' : '#dc2626'}; border-radius:8px; overflow:hidden; width:140px; flex-shrink:0; transition:transform 0.2s; ${isInternProtected ? 'opacity:0.35; filter:grayscale(0.8);' : ''}`;
+        w.style.cssText = `cursor:${isInternProtected ? 'not-allowed' : 'pointer'}; border:2px solid ${isInternProtected ? '#d4c9b8' : '#f87171'}; border-radius:8px; overflow:hidden; width:140px; flex-shrink:0; transition:transform 0.2s; ${isInternProtected ? 'opacity:0.35; filter:grayscale(0.8);' : ''}`;
         w.innerHTML = `<img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
-            <div style="padding:4px; text-align:center; font-size:0.65rem; background:${isInternProtected ? '#f5f0e8' : '#fef2f2'}; color:${isInternProtected ? '#78716c' : '#dc2626'}; font-weight:500;">${isInternProtected ? 'Cannot be discarded' : 'DISCARD'}</div>`;
+            <div style="padding:4px; text-align:center; font-size:0.65rem; background:${isInternProtected ? '#f5f0e8' : '#fef2f2'}; color:${isInternProtected ? '#78716c' : '#f87171'}; font-weight:500;">${isInternProtected ? 'Cannot be discarded' : 'DISCARD'}</div>`;
 
         if (isInternProtected) {
             // Intern Program cards cannot be discarded
@@ -71,11 +71,11 @@ function promptDiscardModal(player, limit) {
             // Show preview overlay
             preview.style.display = 'block';
             preview.innerHTML = `
-                <div style="background:#ffffff; border:2px solid #dc2626; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+                <div style="background:#ffffff; border:2px solid #f87171; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
                     <img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
                     <div style="padding:10px; display:flex; gap:8px; justify-content:center; background:#fef2f2;">
-                        <button id="discard-confirm-btn" style="padding:8px 20px; background:#dc2626; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">DISCARD</button>
-                        <button id="discard-cancel-btn" style="padding:8px 20px; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; cursor:pointer; font-size:0.8rem; border-radius:8px;">BACK</button>
+                        <button id="discard-confirm-btn" class="modal-confirm-btn danger">DISCARD</button>
+                        <button id="discard-cancel-btn" class="modal-secondary-btn">BACK</button>
                     </div>
                 </div>
             `;
@@ -126,12 +126,12 @@ function promptCardChoice(title, desc, cards, maxWorkers, costReduction, player 
         // Clean up any leftover preview from previous calls
         modal.querySelectorAll('.card-preview-overlay').forEach(el => el.remove());
 
-        const gridStyle = "display:flex; flex-wrap:wrap; justify-content:center; gap:8px; max-height:65vh; overflow-y:auto;";
+        const gridStyle = "display:flex; flex-wrap:wrap; justify-content:center; gap:14px; padding:30px 24px 24px; overflow:visible;";
         opts.style.cssText = gridStyle;
 
         const preview = document.createElement('div');
         preview.className = 'card-preview-overlay';
-        preview.style.cssText = "display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:200; text-align:center;";
+        preview.style.cssText = "display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10000; text-align:center;";
 
         function cleanup() {
             preview.remove();
@@ -147,20 +147,20 @@ function promptCardChoice(title, desc, cards, maxWorkers, costReduction, player 
             const costLabel = actualCost > 0 ? `${actualCost}W` : 'Free';
 
             const w = document.createElement('div');
-            w.style.cssText = `width:160px; flex-shrink:0; border-radius:8px; overflow:hidden; border:2px solid ${canAfford ? '#4f46e5' : '#d4c9b8'}; transition:transform 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.08); ${canAfford ? 'cursor:pointer;' : 'opacity:0.35; cursor:not-allowed;'}`;
+            w.style.cssText = `width:220px; flex-shrink:0; border-radius:8px; overflow:hidden; border:2px solid ${canAfford ? '#818cf8' : '#d4c9b8'}; transition:transform 0.25s ease, box-shadow 0.25s ease; box-shadow:0 2px 8px rgba(0,0,0,0.08); transform-origin:center center; ${canAfford ? 'cursor:pointer;' : 'opacity:0.35; cursor:not-allowed;'}`;
             if (canAfford) {
-                w.onmouseenter = () => { if (preview.style.display === 'none') { w.style.transform = 'scale(1.6)'; w.style.zIndex = '10'; w.style.position = 'relative'; } };
-                w.onmouseleave = () => { w.style.transform = 'scale(1)'; w.style.zIndex = ''; w.style.position = ''; };
+                w.onmouseenter = () => { if (preview.style.display === 'none') { w.style.transform = 'scale(2.0)'; w.style.zIndex = '500'; w.style.position = 'relative'; w.style.boxShadow = '0 16px 40px rgba(0,0,0,0.4)'; } };
+                w.onmouseleave = () => { w.style.transform = 'scale(1)'; w.style.zIndex = ''; w.style.position = ''; w.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; };
                 w.onclick = () => {
                     // Reset any hover state
                     w.style.transform = 'scale(1)'; w.style.zIndex = ''; w.style.position = '';
                     preview.style.display = 'block';
                     preview.innerHTML = `
-                        <div style="background:#ffffff; border:2px solid #4f46e5; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+                        <div style="background:#ffffff; border:2px solid #818cf8; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
                             <img src="${img}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
                             <div style="padding:10px; display:flex; gap:8px; justify-content:center; background:#eef2ff;">
-                                <button class="play-confirm" style="padding:8px 20px; background:#4f46e5; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">PLAY (${costLabel})</button>
-                                <button class="play-back" style="padding:8px 20px; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; cursor:pointer; font-size:0.8rem; border-radius:8px;">BACK</button>
+                                <button class="play-confirm modal-confirm-btn">PLAY (${costLabel})</button>
+                                <button class="play-back modal-secondary-btn">BACK</button>
                             </div>
                         </div>`;
                     opts.style.opacity = '0.3';
@@ -175,8 +175,12 @@ function promptCardChoice(title, desc, cards, maxWorkers, costReduction, player 
                 };
             }
             const unavailReason = !workerOk ? `Need ${actualCost}W` : (!reqCheck.met ? reqCheck.reason : '');
-            w.innerHTML = `<img src="${img}" style="width:100%; height:auto; display:block;" onerror="this.style.height='120px'; this.style.background='#f5f0e8';">
-                <div style="padding:3px; font-size:0.65rem; text-align:center; background:${canAfford ? '#eef2ff' : '#fef2f2'}; color:${canAfford ? '#4f46e5' : '#dc2626'}; font-weight:500;">${costLabel}${canAfford ? '' : ' - ' + unavailReason}</div>`;
+            // Cost/type is printed on the card art itself; the only label we
+            // add is a red "why you can't play this" reason when applicable.
+            const footer = canAfford
+                ? ''
+                : `<div style="padding:3px; font-size:0.65rem; text-align:center; background:#fef2f2; color:#f87171; font-weight:500;">${unavailReason}</div>`;
+            w.innerHTML = `<img src="${img}" style="width:100%; height:auto; display:block;" onerror="this.style.height='120px'; this.style.background='#f5f0e8';">${footer}`;
             opts.appendChild(w);
         });
 
@@ -184,7 +188,9 @@ function promptCardChoice(title, desc, cards, maxWorkers, costReduction, player 
 
         const cancel = document.createElement('button');
         cancel.innerText = "Cancel";
-        cancel.style.cssText = "padding:8px 16px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; width:100%; margin-top:8px; border-radius:8px;";
+        cancel.className = "modal-secondary-btn";
+        cancel.style.width = "100%";
+        cancel.style.marginTop = "8px";
         cancel.onclick = () => { cleanup(); modal.style.display = 'none'; resolve(null); };
         opts.appendChild(cancel);
 
@@ -206,7 +212,7 @@ function promptMapRegionChoice(title, desc, validRegionIds) {
 
         const wrap = document.createElement('div');
         wrap.style.cssText = "position:relative; line-height:0; margin:8px 0;";
-        wrap.innerHTML = `<img src="WorldMap.png" style="width:100%; height:auto; border:1px solid #d4c9b8; border-radius:8px; opacity:0.8;">`;
+        wrap.innerHTML = `<img src="images/world-map.svg" style="width:100%; height:auto; border:1px solid #d4c9b8; border-radius:12px; background:#eee7d6;">`;
         const ov = document.createElement('div');
         ov.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%;";
 
@@ -222,28 +228,41 @@ function promptMapRegionChoice(title, desc, validRegionIds) {
                 width:${rw}%; height:${rh}%; display:flex; flex-direction:column; align-items:center; justify-content:center;
                 border-radius:4px; font-size:0.7rem; font-weight:bold; transition:background 0.15s;`;
 
-            // Build info labels for any region
+            // Build SVG-token markup matching the main map's aesthetic.
             const subsidies = region ? region.subsidy_tokens : 0;
-            const tokenHtml = subsidies > 0 ? `<span style="color:#ffcc00;">${'*'.repeat(subsidies)}</span> ` : '';
-            const playersHtml = pp.length > 0 ? pp.map(n => {
-                const o = Game.currentGameState.players.find(p => p.name === n);
-                return o ? `<span style="color:${PLAYER_COLORS[o.id]||'#888'};">${o.name.split(' ').map(w=>w[0]).join('')}</span>` : '';
-            }).join(' ') : '';
+            const subsidyHtml = subsidies > 0
+                ? `<div style="display:inline-flex; align-items:center; gap:2px;">
+                       <img src="assets/svg/subsidy-token.svg" style="width:22px; height:22px; filter:drop-shadow(0 1px 2px rgba(217,119,6,0.4));">
+                       ${subsidies > 1 ? `<span style="font-size:0.62rem; color:#b45309; font-weight:700;">x${subsidies}</span>` : ''}
+                   </div>`
+                : '';
+            const playerTokensHtml = pp.length > 0
+                ? pp.map(n => {
+                    const o = Game.currentGameState.players.find(p => p.name === n);
+                    if (!o) return '';
+                    const tint = PLAYER_COLORS[o.id] || '#888';
+                    return `<span title="${o.name}" style="display:inline-block; width:24px; height:24px; color:${tint}; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.25));">${WORKER_TOKEN_SVG}</span>`;
+                  }).join('')
+                : '';
+
+            const labelLine = `<div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap; justify-content:center; margin-top:2px;">${playerTokensHtml}${subsidyHtml}</div>`;
 
             if (isValid) {
-                m.style.background = 'rgba(79,70,229,0.15)';
-                m.style.border = '2px solid #4f46e5';
-                m.style.color = '#4f46e5';
+                // Highlight valid regions in the active player's color.
+                const playerColor = getComputedStyle(document.body).getPropertyValue('--player-color').trim() || '#818cf8';
+                m.style.background = playerColor + '33';  // ~20% alpha
+                m.style.border = `2px solid ${playerColor}`;
+                m.style.color = '#1e1b18';
                 m.style.cursor = 'pointer';
-                m.innerHTML = `<div>${REGIONS[layout.id-1]}</div><div style="font-size:0.6rem;">${tokenHtml}${playersHtml}</div>`;
-                m.onmouseenter = () => { m.style.background = '#4f46e5'; m.style.color = '#fff'; };
-                m.onmouseleave = () => { m.style.background = 'rgba(79,70,229,0.15)'; m.style.color = '#4f46e5'; };
+                m.innerHTML = `<div style="font-size:0.7rem; font-weight:700;">${REGIONS[layout.id-1]}</div>${labelLine}`;
+                m.onmouseenter = () => { m.style.background = playerColor; };
+                m.onmouseleave = () => { m.style.background = playerColor + '33'; };
                 m.onclick = () => { modal.style.display = 'none'; resolve(layout.id); };
             } else {
-                m.style.background = 'rgba(0,0,0,0.25)';
+                m.style.background = 'rgba(255,255,255,0.55)';
                 m.style.border = '1px solid #d4c9b8';
                 m.style.color = '#78716c';
-                m.innerHTML = `<div style="font-size:0.6rem;">${tokenHtml}${playersHtml}</div>`;
+                m.innerHTML = labelLine;
             }
             ov.appendChild(m);
         });
@@ -253,7 +272,7 @@ function promptMapRegionChoice(title, desc, validRegionIds) {
 
         const cancelBtn = document.createElement('button');
         cancelBtn.innerText = "Cancel";
-        cancelBtn.style.cssText = "padding:8px 16px; margin-top:8px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; border-radius:8px;";
+        cancelBtn.className = "modal-secondary-btn"; cancelBtn.style.marginTop = "8px";
         cancelBtn.onclick = () => { modal.style.display = 'none'; resolve(null); };
         optionsEl.appendChild(cancelBtn);
 
@@ -281,7 +300,7 @@ function promptTargetChoice(attacker, card, opponents) {
         if (cardImg) {
             const cardPreview = document.createElement('div');
             cardPreview.style.cssText = "text-align:center; margin-bottom:8px;";
-            cardPreview.innerHTML = `<img src="${cardImg}" style="width:160px; height:auto; border:1px solid #dc2626; border-radius:8px;">`;
+            cardPreview.innerHTML = `<img src="${cardImg}" style="width:160px; height:auto; border:1px solid #f87171; border-radius:8px;">`;
             opts.appendChild(cardPreview);
         }
 
@@ -291,7 +310,7 @@ function promptTargetChoice(attacker, card, opponents) {
 
         opponents.forEach(opp => {
             const btn = document.createElement('button');
-            btn.style.cssText = "padding:10px; cursor:pointer; background:#ffffff; color:#1e1b18; border:1px solid #d4c9b8; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:8px; font-family:'Inter',system-ui,sans-serif;";
+            btn.style.cssText = "padding:10px; cursor:pointer; background:#ffffff; color:#1e1b18; border:1px solid #d4c9b8; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:8px; font-family:'Space Grotesk',system-ui,sans-serif;";
             btn.innerHTML = `
                 <span style="font-weight:600;">${opp.name}</span>
                 <span style="font-size:0.7rem; color:#78716c;">Power: ${opp.power} | Funds: $${opp.corporate_funds} | Rep: ${opp.reputation} | Compute: ${opp.compute_level} | Model: v${opp.model_version} | Workers: ${opp.total_worker_count}</span>
@@ -301,7 +320,7 @@ function promptTargetChoice(attacker, card, opponents) {
                 // Show detailed preview
                 previewArea.style.display = 'block';
                 previewArea.innerHTML = `
-                    <div style="font-weight:bold; font-size:0.9rem; margin-bottom:8px; color:#dc2626;">Target: ${opp.name}</div>
+                    <div style="font-weight:bold; font-size:0.9rem; margin-bottom:8px; color:#f87171;">Target: ${opp.name}</div>
                     <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px; font-size:0.7rem; margin-bottom:10px;">
                         <div style="text-align:center; border:1px solid #e5ddd0; padding:4px; background:#ffffff; border-radius:6px;"><div style="color:#78716c; font-size:0.55rem;">Power</div><div style="font-weight:bold; color:#1e1b18;">${opp.power}</div></div>
                         <div style="text-align:center; border:1px solid #e5ddd0; padding:4px; background:#ffffff; border-radius:6px;"><div style="color:#78716c; font-size:0.55rem;">Corp Funds</div><div style="font-weight:bold; color:#1e1b18;">$${opp.corporate_funds}</div></div>
@@ -313,8 +332,8 @@ function promptTargetChoice(attacker, card, opponents) {
                         <div style="text-align:center; border:1px solid #e5ddd0; padding:4px; background:#ffffff; border-radius:6px;"><div style="color:#78716c; font-size:0.55rem;">Regions</div><div style="font-weight:bold; color:#1e1b18;">${opp.presence_count}</div></div>
                     </div>
                     <div style="display:flex; gap:8px; justify-content:center;">
-                        <button id="target-confirm" style="padding:8px 20px; background:#dc2626; color:#fff; border:none; cursor:pointer; font-weight:bold; border-radius:8px;">ATTACK ${opp.name.toUpperCase()}</button>
-                        <button id="target-back" style="padding:8px 20px; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; cursor:pointer; border-radius:8px;">BACK</button>
+                        <button id="target-confirm" class="modal-confirm-btn danger">ATTACK ${opp.name.toUpperCase()}</button>
+                        <button id="target-back" class="modal-secondary-btn">BACK</button>
                     </div>
                 `;
                 document.getElementById('target-confirm').onclick = () => {
@@ -331,7 +350,7 @@ function promptTargetChoice(attacker, card, opponents) {
 
         const cancel = document.createElement('button');
         cancel.innerText = "Cancel";
-        cancel.style.cssText = "padding:8px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; border-radius:8px;";
+        cancel.className = "modal-secondary-btn";
         cancel.onclick = () => { modal.style.display='none'; opts.style.cssText=''; resolve(null); };
         opts.appendChild(cancel);
 
@@ -353,14 +372,14 @@ function promptUserChoice(title, desc, options, validator = null) {
             if (validator && !validator(opt)) return;
             const btn = document.createElement('button');
             btn.innerText = opt;
-            btn.style.cssText = "padding:8px; cursor:pointer; background:#ffffff; color:#1e1b18; border:1px solid #d4c9b8; text-align:left; border-radius:8px; font-family:'Inter',system-ui,sans-serif;";
+            btn.style.cssText = "padding:8px; cursor:pointer; background:#ffffff; color:#1e1b18; border:1px solid #d4c9b8; text-align:left; border-radius:8px; font-family:'Space Grotesk',system-ui,sans-serif;";
             btn.onclick = () => { modal.style.display='none'; opts.style.cssText=''; resolve(opt); };
             opts.appendChild(btn);
         });
 
         const cancel = document.createElement('button');
         cancel.innerText = opts.children.length === 0 ? "No Valid Options - Close" : "Cancel";
-        cancel.style.cssText = "padding:8px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; border-radius:8px;";
+        cancel.className = "modal-secondary-btn";
         cancel.onclick = () => { modal.style.display='none'; opts.style.cssText=''; resolve(null); };
         opts.appendChild(cancel);
 
@@ -393,9 +412,9 @@ function promptForcedDiscardModal(interaction, respondingName) {
             const isProtected = excludeSlugs.includes(card.effect_slug);
             const imgPath = card.image_file ? `assets/${card.image_file}` : '';
             const w = document.createElement('div');
-            w.style.cssText = `cursor:${isProtected ? 'not-allowed' : 'pointer'}; border:2px solid ${isProtected ? '#d4c9b8' : '#dc2626'}; border-radius:8px; overflow:hidden; width:140px; flex-shrink:0; transition:transform 0.2s; ${isProtected ? 'opacity:0.35; filter:grayscale(0.8);' : ''}`;
+            w.style.cssText = `cursor:${isProtected ? 'not-allowed' : 'pointer'}; border:2px solid ${isProtected ? '#d4c9b8' : '#f87171'}; border-radius:8px; overflow:hidden; width:140px; flex-shrink:0; transition:transform 0.2s; ${isProtected ? 'opacity:0.35; filter:grayscale(0.8);' : ''}`;
             w.innerHTML = `<img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
-                <div style="padding:4px; text-align:center; font-size:0.65rem; background:${isProtected ? '#f5f0e8' : '#fef2f2'}; color:${isProtected ? '#78716c' : '#dc2626'}; font-weight:500;">${isProtected ? 'Cannot be discarded' : 'DISCARD'}</div>`;
+                <div style="padding:4px; text-align:center; font-size:0.65rem; background:${isProtected ? '#f5f0e8' : '#fef2f2'}; color:${isProtected ? '#78716c' : '#f87171'}; font-weight:500;">${isProtected ? 'Cannot be discarded' : 'DISCARD'}</div>`;
 
             if (!isProtected) {
                 w.onmouseenter = () => { if (preview.style.display === 'none') { w.style.transform = 'scale(1.6)'; w.style.zIndex = '10'; w.style.position = 'relative'; } };
@@ -404,10 +423,10 @@ function promptForcedDiscardModal(interaction, respondingName) {
                     w.style.transform = 'scale(1)'; w.style.zIndex = ''; w.style.position = '';
                     preview.style.display = 'block';
                     preview.innerHTML = `
-                        <div style="background:#ffffff; border:2px solid #dc2626; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+                        <div style="background:#ffffff; border:2px solid #f87171; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
                             <img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
                             <div style="padding:10px; display:flex; gap:8px; justify-content:center; background:#fef2f2;">
-                                <button class="discard-yes" style="padding:8px 20px; background:#dc2626; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">DISCARD</button>
+                                <button class="discard-yes" style="padding:8px 20px; background:#f87171; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">DISCARD</button>
                                 <button class="discard-no" style="padding:8px 20px; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; cursor:pointer; font-size:0.8rem; border-radius:8px;">BACK</button>
                             </div>
                         </div>`;
@@ -453,9 +472,9 @@ function promptStealCardModal(interaction) {
         (interaction.target_hand || []).forEach(card => {
             const imgPath = card.image_file ? `assets/${card.image_file}` : '';
             const w = document.createElement('div');
-            w.style.cssText = "cursor:pointer; border:2px solid #d97706; border-radius:8px; overflow:hidden; width:160px; flex-shrink:0; transition:transform 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.08);";
+            w.style.cssText = "cursor:pointer; border:2px solid #fbbf24; border-radius:8px; overflow:hidden; width:160px; flex-shrink:0; transition:transform 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.08);";
             w.innerHTML = `<img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.height='120px'; this.style.background='#f5f0e8';">
-                <div style="padding:4px; font-size:0.6rem; text-align:center; background:#fffbeb; color:#d97706;">
+                <div style="padding:4px; font-size:0.6rem; text-align:center; background:#fffbeb; color:#fbbf24;">
                     ${card.name}<br><span style="font-size:0.5rem; color:#78716c;">${card.cost > 0 ? card.cost + 'W' : 'Free'} | ${card.description || ''}</span>
                 </div>`;
 
@@ -465,11 +484,11 @@ function promptStealCardModal(interaction) {
                 w.style.transform = 'scale(1)'; w.style.zIndex = ''; w.style.position = '';
                 preview.style.display = 'block';
                 preview.innerHTML = `
-                    <div style="background:#ffffff; border:2px solid #d97706; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+                    <div style="background:#ffffff; border:2px solid #fbbf24; border-radius:12px; overflow:hidden; width:280px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
                         <img src="${imgPath}" style="width:100%; height:auto; display:block;" onerror="this.style.display='none'">
-                        <div style="padding:6px; font-size:0.7rem; color:#d97706; background:#fffbeb; text-align:center; font-weight:500;">${card.name} - ${card.description || ''}</div>
+                        <div style="padding:6px; font-size:0.7rem; color:#fbbf24; background:#fffbeb; text-align:center; font-weight:500;">${card.name} - ${card.description || ''}</div>
                         <div style="padding:10px; display:flex; gap:8px; justify-content:center; background:#fffbeb;">
-                            <button class="steal-yes" style="padding:8px 20px; background:#d97706; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">STEAL THIS</button>
+                            <button class="steal-yes" style="padding:8px 20px; background:#fbbf24; color:#fff; border:none; cursor:pointer; font-weight:bold; font-size:0.8rem; border-radius:8px;">STEAL THIS</button>
                             <button class="steal-no" style="padding:8px 20px; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; cursor:pointer; font-size:0.8rem; border-radius:8px;">BACK</button>
                         </div>
                     </div>`;
@@ -508,7 +527,7 @@ function promptPayOrLoseModal(interaction) {
         const payBtn = document.createElement('button');
         payBtn.innerText = `Pay $${interaction.pay_amount}`;
         payBtn.disabled = !interaction.can_pay;
-        payBtn.style.cssText = `padding:12px 30px; font-size:0.9rem; font-weight:bold; cursor:${interaction.can_pay ? 'pointer' : 'not-allowed'}; background:${interaction.can_pay ? '#4f46e5' : '#f5f0e8'}; color:${interaction.can_pay ? '#fff' : '#78716c'}; border:${interaction.can_pay ? 'none' : '1px solid #d4c9b8'}; min-width:250px; border-radius:8px;`;
+        payBtn.style.cssText = `padding:12px 30px; font-size:0.9rem; font-weight:bold; cursor:${interaction.can_pay ? 'pointer' : 'not-allowed'}; background:${interaction.can_pay ? '#818cf8' : '#f5f0e8'}; color:${interaction.can_pay ? '#fff' : '#78716c'}; border:${interaction.can_pay ? 'none' : '1px solid #d4c9b8'}; min-width:250px; border-radius:8px;`;
         payBtn.onclick = () => {
             if (!interaction.can_pay) return;
             modal.style.display = 'none'; opts.style.cssText = '';
@@ -518,7 +537,7 @@ function promptPayOrLoseModal(interaction) {
 
         const loseBtn = document.createElement('button');
         loseBtn.innerText = interaction.lose_description;
-        loseBtn.style.cssText = "padding:12px 30px; font-size:0.9rem; font-weight:bold; cursor:pointer; background:#dc2626; color:#fff; border:none; min-width:250px; border-radius:8px;";
+        loseBtn.style.cssText = "padding:12px 30px; font-size:0.9rem; font-weight:bold; cursor:pointer; background:#f87171; color:#fff; border:none; min-width:250px; border-radius:8px;";
         loseBtn.onclick = () => {
             modal.style.display = 'none'; opts.style.cssText = '';
             resolve({choice: 'lose'});
@@ -546,9 +565,9 @@ function promptChooseSqueezeRegionModal(interaction) {
             const regionName = REGIONS[regionId - 1] || `Region ${regionId}`;
             const btn = document.createElement('button');
             btn.innerText = `R${regionId}: ${regionName}`;
-            btn.style.cssText = "padding:12px 20px; cursor:pointer; background:#eef2ff; color:#4f46e5; border:2px solid #4f46e5; font-weight:bold; font-size:0.85rem; min-width:150px; border-radius:8px;";
-            btn.onmouseenter = () => { btn.style.background = '#4f46e5'; btn.style.color = '#fff'; };
-            btn.onmouseleave = () => { btn.style.background = '#eef2ff'; btn.style.color = '#4f46e5'; };
+            btn.style.cssText = "padding:12px 20px; cursor:pointer; background:#eef2ff; color:#818cf8; border:2px solid #818cf8; font-weight:bold; font-size:0.85rem; min-width:150px; border-radius:8px;";
+            btn.onmouseenter = () => { btn.style.background = '#818cf8'; btn.style.color = '#fff'; };
+            btn.onmouseleave = () => { btn.style.background = '#eef2ff'; btn.style.color = '#818cf8'; };
             btn.onclick = () => {
                 modal.style.display = 'none'; opts.style.cssText = '';
                 resolve({region_id: regionId});
@@ -558,7 +577,7 @@ function promptChooseSqueezeRegionModal(interaction) {
 
         const cancel = document.createElement('button');
         cancel.innerText = "Cancel";
-        cancel.style.cssText = "padding:8px 16px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; width:100%; margin-top:8px; border-radius:8px;";
+        cancel.className = "modal-secondary-btn"; cancel.style.width = "100%"; cancel.style.marginTop = "8px";
         cancel.onclick = () => { modal.style.display = 'none'; opts.style.cssText = ''; resolve(null); };
         opts.appendChild(cancel);
 
@@ -586,12 +605,12 @@ function promptChooseRegionsModal(interaction) {
         (interaction.available_regions || []).forEach(regionId => {
             const regionName = REGIONS[regionId - 1] || `Region ${regionId}`;
             const label = document.createElement('label');
-            label.style.cssText = "display:flex; align-items:center; gap:6px; padding:10px 14px; background:#ffffff; border:2px solid #4f46e5; border-radius:8px; cursor:pointer; font-size:0.8rem; color:#4f46e5; min-width:140px;";
+            label.style.cssText = "display:flex; align-items:center; gap:6px; padding:10px 14px; background:#ffffff; border:2px solid #818cf8; border-radius:8px; cursor:pointer; font-size:0.8rem; color:#818cf8; min-width:140px;";
 
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.value = regionId;
-            cb.style.cssText = "accent-color:#4f46e5; width:16px; height:16px;";
+            cb.style.cssText = "accent-color:#818cf8; width:16px; height:16px;";
             cb.onchange = () => {
                 if (cb.checked) {
                     if (selected.size >= interaction.max_regions) { cb.checked = false; return; }
@@ -612,7 +631,7 @@ function promptChooseRegionsModal(interaction) {
 
         const confirmBtn = document.createElement('button');
         confirmBtn.innerText = `Confirm (0/${interaction.max_regions})`;
-        confirmBtn.style.cssText = "padding:10px 30px; cursor:pointer; background:#4f46e5; color:#fff; border:none; font-weight:bold; font-size:0.85rem; margin-top:8px; border-radius:8px;";
+        confirmBtn.style.cssText = "padding:10px 30px; cursor:pointer; background:#818cf8; color:#fff; border:none; font-weight:bold; font-size:0.85rem; margin-top:8px; border-radius:8px;";
         confirmBtn.onclick = () => {
             if (selected.size === 0) return;
             modal.style.display = 'none'; opts.style.cssText = '';
@@ -622,7 +641,7 @@ function promptChooseRegionsModal(interaction) {
 
         const cancel = document.createElement('button');
         cancel.innerText = "Cancel";
-        cancel.style.cssText = "padding:8px 16px; cursor:pointer; background:#f5f0e8; color:#78716c; border:1px solid #d4c9b8; margin-top:4px; border-radius:8px;";
+        cancel.className = "modal-secondary-btn"; cancel.style.marginTop = "4px";
         cancel.onclick = () => { modal.style.display = 'none'; opts.style.cssText = ''; resolve(null); };
         opts.appendChild(cancel);
 
@@ -647,11 +666,11 @@ async function handleDrawnCardChoice(playerId, drawnCards) {
         for (const card of drawnCards) {
             const img = card.image_file ? `assets/${card.image_file}` : '';
             const w = document.createElement('div');
-            w.style.cssText = "width:180px; flex-shrink:0; border-radius:8px; overflow:hidden; border:2px solid #4f46e5; cursor:pointer; transition:transform 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.08);";
+            w.style.cssText = "width:180px; flex-shrink:0; border-radius:8px; overflow:hidden; border:2px solid #818cf8; cursor:pointer; transition:transform 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.08);";
             w.onmouseenter = () => { w.style.transform = 'scale(1.1)'; };
             w.onmouseleave = () => { w.style.transform = 'scale(1)'; };
             w.innerHTML = `<img src="${img}" style="width:100%; height:auto; display:block;" onerror="this.style.height='120px'; this.style.background='#f5f0e8';">
-                <div style="padding:4px; font-size:0.65rem; text-align:center; background:#eef2ff; color:#4f46e5; font-weight:600;">PLAY THIS CARD</div>`;
+                <div style="padding:4px; font-size:0.65rem; text-align:center; background:#eef2ff; color:#818cf8; font-weight:600;">PLAY THIS CARD</div>`;
             w.onclick = async () => {
                 modal.style.display = 'none';
                 opts.style.cssText = '';

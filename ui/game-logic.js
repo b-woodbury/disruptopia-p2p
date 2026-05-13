@@ -5,6 +5,14 @@
 // ── PLACE WORKER ──────────────────────────────────────────
 async function placeWorker(actionName) {
     if (!Game.currentGameState || !Game.PLAYER_ID) { addLog("Error: Select a player first."); return; }
+    // Block actions while peeking at an opponent's board — only the turn
+    // player may place workers. Skip the check in multiplayer; there each peer
+    // controls only its own player and the turn-player concept doesn't apply.
+    const isMP = Game.mp && (Game.mp.mode === 'host' || Game.mp.mode === 'join');
+    if (!isMP && Game.turnPlayerId != null && Game.PLAYER_ID !== Game.turnPlayerId) {
+        addLog("Viewing only — click your own token to return to your turn.");
+        return;
+    }
     const me = Game.currentGameState.players.find(p => p.id === Game.PLAYER_ID);
     if (!me) return;
 
@@ -126,28 +134,12 @@ async function placeWorker(actionName) {
         workersToPlaceCount = effectiveCost;
     }
 
-    // Recruit: prompt for which action the new Tech Worker will perform.
-    // The rulebook (p.7) lets recruited workers be placed on any action;
-    // for now we offer only the simple ones (no further sub-prompt needed).
-    if (slug === 'recruit') {
-        const recruitableLabels = {
-            buy_chips: "Buy Chips",
-            marketing: "Marketing",
-            raise_funds: "Raise Funds",
-            train_model: "Train Model",
-            increase_net_worth: "Increase Net Worth",
-        };
-        const labelList = Object.values(recruitableLabels);
-        const choice = await promptUserChoice(
-            "Recruit — New Worker's Action",
-            "The recruited Tech Worker can act this round. Pick its action:",
-            labelList
-        );
-        if (!choice) return;
-        const chosenSlug = Object.keys(recruitableLabels).find(k => recruitableLabels[k] === choice);
-        if (!chosenSlug) return;
-        targetSubAction = chosenSlug;
-    }
+    // Recruit: no modal. The new worker just joins the pool; the player
+    // assigns it by clicking any tile afterwards (the placement loop already
+    // increments `projTotal` to include pending recruits). If the player
+    // never assigns it, the engine spawns the worker token but skips the
+    // auto-placement (rulebook p.7 says the worker *can* act this round,
+    // not that it must).
 
     // Scale Presence: visual map picker
     if (slug === 'scale_presence') {
@@ -207,7 +199,10 @@ async function startStrategyExecution() {
             addLog(`Waiting for ${unready.map(p => p.name).join(', ')} to place workers.`);
             return;
         }
-        await switchPlayer(unready[0].id);
+        // Hot-seat hand-off: promote the next unready player to be the turn
+        // player (not just a peek), so they can place workers.
+        setTurnPlayer(unready[0].id);
+        refreshData();
         await promptDiscardIfNeeded(unready[0].id);
         addLog(`Switching to ${unready[0].name} — they need to place workers.`);
         return;
@@ -272,7 +267,8 @@ async function _runStrategyExecution() {
             for (const p of Game.currentGameState.players) {
                 const limit = p.hand_limit || 5;
                 if ((p.hand?.length || 0) > limit) {
-                    await switchPlayer(p.id);
+                    setTurnPlayer(p.id);
+                    refreshData();
                     await promptDiscardIfNeeded(p.id);
                 }
             }
@@ -280,7 +276,8 @@ async function _runStrategyExecution() {
             const newP1 = Game.currentGameState.p1_index ?? 0;
             const first = Game.currentGameState.players.sort((a, b) => a.id - b.id)[newP1 % Game.currentGameState.players.length];
             if (first) {
-                await switchPlayer(first.id);
+                setTurnPlayer(first.id);
+                refreshData();
                 addLog(`${first.name}'s turn to place workers.`);
             }
         }
