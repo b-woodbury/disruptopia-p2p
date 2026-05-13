@@ -221,6 +221,201 @@ const CardValidators = {
 
 
 // ==========================================
+// CARD PROJECTIONS REGISTRY
+// ==========================================
+//
+// CardProjections[slug] is called from Engine.getProjectedPlayerState
+// when a `play_card` worker placement appears earlier in the round.
+// Each function mutates the projected state to reflect the card's
+// deterministic SELF-stat effect (reputation, power, compute, model,
+// presence, corporate_funds, total_workers, subsidy_tokens, board
+// slots) so that VALIDATORS on later worker placements in the same
+// round see accurate state.
+//
+// Signature: (proj, state, def, payload) => void
+//   proj    — the in-progress projected state dict (mutate in place)
+//   state   — full game state (read-only, for opponent regions etc.)
+//   def     — the card definition (rarely needed; provided for symmetry
+//             with CardEffects)
+//   payload — projection assumes "best-realistic" choices (e.g. spend
+//             max affordable funds for podcast_tour's optional pay-up
+//             clause). Not used to drive choice today but reserved.
+//
+// Cards NOT registered here either (a) only affect other players
+// (back_to_office, ransomware, patent_troll, fake_celeb_death,
+// supply_chain_meltdown, content_moderation, ceo_twitter_rampage,
+// hack_toasters), (b) set passive modifiers already handled via mods
+// (gpu_tech, microdosing_interns, debt_expansion, big_compute_energy,
+// gpu_price_hike, consulting_fees, defense_contract, model_hype,
+// corporate_espionage, piggyback), (c) draw cards or modal-pick
+// (unethical_data, celebrity_tour, nefarious_schemings, recruiting_pipeline),
+// or (d) are an optional play whose default-no-effect projection
+// matches the conservative case (management_restructuring's sell-power
+// is OPT-IN — projecting "no sell" is the safer baseline).
+//
+// New cards: add to CardEffects, then add a CardProjections entry
+// here, then add a row to tests/projection_test.py.
+
+const CardProjections = {
+    // ── INFLUENCE (self-stat) ─────────────────────────────────────
+    build_hq: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + 2);
+        proj.power = Engine.clampPower(proj.power + 2);
+    },
+    intern_program: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + 2);
+    },
+    influencer_marketing: (proj) => {
+        const gain = ({0: 6, 1: 8, 2: 10})[proj.net_worth_level] || 0;
+        proj.corporate_funds += gain;
+    },
+    carbon_offsets: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + proj.subsidy_tokens);
+    },
+    free_wifi: (proj) => {
+        // Optional: pay $1 to gain rep. Projection assumes the player
+        // takes the payout if they can afford it (always net-positive).
+        if (proj.corporate_funds < 1) return;
+        const bonus = ({0: 3, 1: 2, 2: 1})[proj.net_worth_level] || 0;
+        if (!bonus) return;
+        proj.corporate_funds -= 1;
+        proj.reputation = Engine.clampRep(proj.reputation + bonus);
+    },
+    bribe_un: (proj) => {
+        // Validator already gates presence_count > 5 at placement time.
+        proj.power = Engine.clampPower(proj.power + proj.presence_count);
+    },
+    hire_ethicist: (proj, state) => {
+        // +1 rep per region where competitors have presence and the
+        // player does not. Each region counts at most once.
+        const playerRegions = new Set(proj.presence_regions);
+        const counted = new Set();
+        let bonus = 0;
+        for (const o of (state.players || [])) {
+            if (o.id === proj._playerId) continue;
+            for (const r of (o.presenceRegions || [])) {
+                if (!playerRegions.has(r) && !counted.has(r)) {
+                    counted.add(r);
+                    bonus += 1;
+                }
+            }
+        }
+        proj.reputation = Engine.clampRep(proj.reputation + bonus);
+    },
+    podcast_tour: (proj) => {
+        // "Increase Power up to +3, paying $1 per Power." Projection
+        // assumes the player pays the max they can afford (always
+        // upside for a Disruptor heading toward Patent Troll / Phishing).
+        const spend = Math.min(3, Math.max(0, proj.corporate_funds));
+        if (spend > 0) {
+            proj.corporate_funds -= spend;
+            proj.power = Engine.clampPower(proj.power + spend);
+        }
+    },
+    community_ads: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + proj.presence_count);
+    },
+    hire_lobbyist: (proj) => {
+        const bonus = ({0: 1, 1: 2, 2: 3})[proj.net_worth_level] || 0;
+        proj.power = Engine.clampPower(proj.power + bonus);
+    },
+    court_autocrat: (proj) => {
+        // Validator gates reputation < 1.
+        proj.power = Engine.clampPower(proj.power + 3);
+        proj.reputation = Engine.clampRep(proj.reputation - proj.presence_count);
+    },
+    layoffs: (proj) => {
+        // Validator gates total_workers ≤ 3 (would put player below min).
+        const gain = proj.total_workers * 3;
+        proj.corporate_funds += gain;
+        proj.total_workers -= 1;
+        // The freed worker token returns to most-expensive-empty slot
+        // on the board (rulebook p.14), so it MAY become available for
+        // re-buy via recruit later this round. Mirror by adding the
+        // next-empty slot back to the projected worker_board_slots.
+        // Use highest existing slot+1, capped at 8.
+        const used = new Set(proj.worker_board_slots);
+        for (let s = 8; s >= 4; s--) {
+            if (!used.has(s) && s > Math.max(...proj.worker_board_slots, 3)) {
+                proj.worker_board_slots = [...proj.worker_board_slots, s].sort((a,b)=>a-b);
+                break;
+            }
+        }
+    },
+    vc_investor: (proj) => {
+        // Validator gates corporate_funds ≥ 10.
+        const gain = ({0: 4, 1: 6, 2: 8})[proj.net_worth_level] || 0;
+        proj.corporate_funds += gain;
+    },
+    university_collab: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + 2);
+        proj.power = Engine.clampPower(proj.power + 1);
+        proj.corporate_funds += 5;
+    },
+
+    // ── RESEARCH (self-stat) ──────────────────────────────────────
+    nerdy_optimization: (proj) => {
+        // Validator gates compute≥7 / NW.
+        if (proj.compute_level < 7) proj.compute_level += 1;
+    },
+    powerpoint: (proj) => {
+        // Validator gates rep<-2 / compute / NW.
+        if (proj.compute_level < 7) proj.compute_level += 1;
+        proj.reputation = Engine.clampRep(proj.reputation - 1);
+    },
+    sweatshop: (proj) => {
+        // Validator gates rep<-1.
+        proj.reputation = Engine.clampRep(proj.reputation - 2);
+    },
+    whitepaper: (proj) => {
+        // +1 worker (kept) — also takes a worker token slot.
+        if (proj.worker_board_slots.length > 0) {
+            const slot = Math.min(...proj.worker_board_slots);
+            proj.worker_board_slots = proj.worker_board_slots.filter(s => s !== slot);
+            proj.total_workers += 1;
+        }
+    },
+    spaghetti_code: (proj) => {
+        // Free recruit — same slot logic as whitepaper.
+        if (proj.worker_board_slots.length > 0) {
+            const slot = Math.min(...proj.worker_board_slots);
+            proj.worker_board_slots = proj.worker_board_slots.filter(s => s !== slot);
+            proj.total_workers += 1;
+        }
+    },
+    open_source: (proj) => {
+        proj.power = Engine.clampPower(proj.power + Math.floor(proj.presence_count / 2));
+    },
+
+    // ── SABOTAGE (self-stat changes; opponent effects don't project) ──
+    private_jet: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation - 1);
+        proj.subsidy_tokens += 1;
+    },
+    phishing_scam: (proj) => {
+        // Validator gates power < 10. Self -3 rep (max payout).
+        proj.reputation = Engine.clampRep(proj.reputation - 3);
+    },
+    spin_media: (proj) => {
+        proj.reputation = Engine.clampRep(proj.reputation + 1);
+    },
+    freemium_infrastructure: (proj) => {
+        proj.power = Engine.clampPower(proj.power + 1);
+    },
+    poach_engineers: (proj) => {
+        // +1 worker (with slot), -1 rep self. (Target loses 1 worker
+        // — that's effect-time on the opponent, not projected here.)
+        if (proj.worker_board_slots.length > 0) {
+            const slot = Math.min(...proj.worker_board_slots);
+            proj.worker_board_slots = proj.worker_board_slots.filter(s => s !== slot);
+            proj.total_workers += 1;
+        }
+        proj.reputation = Engine.clampRep(proj.reputation - 1);
+    },
+};
+
+
+// ==========================================
 // CARD EFFECTS REGISTRY
 // ==========================================
 

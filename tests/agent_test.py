@@ -45,6 +45,7 @@ import re
 import sys
 import time
 import traceback
+from pathlib import Path
 
 import requests
 from playwright.sync_api import sync_playwright
@@ -82,6 +83,43 @@ def log(name, ok, detail=""):
 
 REASONING_EFFORT = os.getenv("AGENT_REASONING_EFFORT", "medium")
 
+# ── Subagent (file-based) mode ────────────────────────────────────────
+# When AGENT_BRIDGE=file is set, every LLM call is routed through a
+# request/response file pair in AGENT_BRIDGE_DIR (default /tmp/agent_bridge).
+# An external driver (e.g. Claude Code spawning subagents) reads the
+# request file and writes the response file. This lets us run the game
+# with Claude subagents as players without any API endpoint.
+BRIDGE_MODE = os.getenv("AGENT_BRIDGE", "").lower() == "file"
+BRIDGE_DIR = Path(os.getenv("AGENT_BRIDGE_DIR", "/tmp/agent_bridge"))
+BRIDGE_POLL_SEC = float(os.getenv("AGENT_BRIDGE_POLL_SEC", "1.0"))
+BRIDGE_TIMEOUT_SEC = int(os.getenv("AGENT_BRIDGE_TIMEOUT_SEC", "3600"))
+# When AGENT_BRIDGE_PARALLEL=true, all N players' requests for a round are
+# written together and ask_llm calls are dispatched in parallel via a
+# ThreadPoolExecutor. The external driver (Claude Code) responds to each
+# request file independently. Saves wall time when multiple players exist.
+BRIDGE_PARALLEL = BRIDGE_MODE and os.getenv("AGENT_BRIDGE_PARALLEL", "").lower() == "true"
+
+
+def _bridge_ask(system, user):
+    """File-based LLM bridge: write request, wait for response."""
+    global LLM_CALLS
+    BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
+    LLM_CALLS += 1
+    call_id = f"call_{LLM_CALLS:04d}"
+    req_path = BRIDGE_DIR / f"{call_id}.request.json"
+    resp_path = BRIDGE_DIR / f"{call_id}.response.txt"
+    payload = {"id": call_id, "system": system, "user": user}
+    req_path.write_text(json.dumps(payload, indent=2))
+    print(f"  [BRIDGE] waiting for {resp_path.name}", flush=True)
+    deadline = time.time() + BRIDGE_TIMEOUT_SEC
+    while time.time() < deadline:
+        if resp_path.exists():
+            content = resp_path.read_text().strip()
+            if content:
+                return content
+        time.sleep(BRIDGE_POLL_SEC)
+    raise RuntimeError(f"Bridge timed out waiting for {resp_path}")
+
 
 def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=2500):
     """Call the configured OpenAI-compatible endpoint. Returns content string.
@@ -96,6 +134,8 @@ def ask_llm(system, user, max_retries=2, temperature=0.6, max_tokens=2500):
     tokens. Default "medium" matches /src/infra/vllm/presets/gpt-oss-120b
     guidance for non-trivial reasoning tasks.
     """
+    if BRIDGE_MODE:
+        return _bridge_ask(system, user)
     global LLM_CALLS
     last_err = None
     for attempt in range(max_retries + 1):
@@ -297,7 +337,7 @@ Rules:
 - recruit takes a new Tech Worker and assigns it to ANY action immediately.
 - Game ends after the round any player hits Model Version 7.
 
-Scoring: 1VP per 5 Power, 1VP per Model Version, 1VP per Region, Millionaire/Billionaire bonuses, highest-personal-funds bonus.
+Scoring: 1VP per 5 Power, 1VP per Model Version, 1VP per Region, highest-personal-funds bonus, and Millionaire/Billionaire RACE bonuses (the EARLIER you reach each tier, the more VP). In 5p: 1st to each tier earns +2 VP, 2nd/3rd earn +1, 4th/5th earn 0. In 4p: same. In 3p: 1st earns +2, 2nd earns +1. In 2p: 1st earns +1, 2nd earns 0. Late upgrades pay nothing.
 
 You will receive game state as JSON. Return ONLY a JSON object — no prose, no markdown:
 
@@ -305,7 +345,8 @@ You will receive game state as JSON. Return ONLY a JSON object — no prose, no 
   "placements": [
     {"worker": 1, "action": "marketing"},
     {"worker": 2, "action": "raise_funds"},
-    {"worker": 3, "action": "scale_presence", "region": 3}
+    {"worker": 3, "action": "scale_presence", "region": 3},
+    {"worker": 4, "action": "recruit", "recruit_target": "train_model"}
   ],
   "card_plays": [{"worker_first": 2, "card_id": 42}]
 }
@@ -314,6 +355,7 @@ Rules for placements:
 - Must cover workers 1..total_workers.
 - For play_card: include card_id and the starting worker.
 - For scale_presence: include `region` from your `neighbors` list.
+- For recruit: include `recruit_target` — the action the NEW worker performs immediately. If omitted, the engine defaults to "marketing". So `recruit` is effectively TWO actions in one slot: one worker spent recruiting, one worker placed on `recruit_target`. Pick whichever action would otherwise be slot-blocked or whose extra value you want this round.
 - Only choose actions where availability says available:true.
 """
 
@@ -583,7 +625,8 @@ def force_close_choice_modal(page):
 # invariant the engine should preserve, regardless of what cards
 # were played or what moves the agents made.
 
-AUDIT_FINDINGS = []   # accumulates across all rounds for the end-of-game summary
+INVARIANT_FINDINGS = []   # engine-level invariant violations (real bugs) → agent.4 FAIL
+LLM_REJECTIONS = []       # resolution-time rejections caused by LLM mistakes → INFO only
 
 
 def run_engine_audit(page, round_n, label="post-round"):
@@ -676,7 +719,7 @@ def run_engine_audit(page, round_n, label="post-round"):
     for f in result.get("findings", []):
         line = f"  WARN: AUDIT round={result['round']} {label}: {f}"
         print(line)
-        AUDIT_FINDINGS.append(line)
+        INVARIANT_FINDINGS.append(line)
     return result
 
 
@@ -735,9 +778,12 @@ def dump_resolution_log(page, round_n):
             LAST_REJECTIONS.setdefault(idx, []).extend(rejs)
     if data and data.get("errors"):
         for e in data["errors"]:
-            line = f"  WARN: AUDIT round={round_n} resolution: {e}"
+            # These are LLM rule-violations the engine correctly rejected.
+            # They feed LAST_REJECTIONS (next-turn LLM feedback), and we
+            # surface them as INFO at game-end — they are NOT engine bugs.
+            line = f"  INFO: LLM-rejection round={round_n}: {e}"
             print(line)
-            AUDIT_FINDINGS.append(line)
+            LLM_REJECTIONS.append(line)
 
 
 def audit_game_end(page):
@@ -773,7 +819,7 @@ def audit_game_end(page):
     for f in res.get("findings", []):
         line = f"  WARN: AUDIT game_end: {f}"
         print(line)
-        AUDIT_FINDINGS.append(line)
+        INVARIANT_FINDINGS.append(line)
     return res
 
 
@@ -793,6 +839,113 @@ def dump_state_snapshot(page, round_n):
 
 TURN_HISTORY = {}   # player_idx -> [most-recent first, capped to 2]
 LAST_REJECTIONS = {}  # player_idx -> [{action, card, reason}] from previous round only
+
+
+def build_player_decision_prompt(page, player_idx, round_n):
+    """Phase 1 of a player's turn: gather snapshot + build LLM prompts.
+
+    Pure-read on Playwright state; does NOT mutate the game. Safe to call
+    for every player at the start of a round before any placements fire.
+    Returns (snap, sys_prompt, user_msg).
+    """
+    snap = snapshot_for_llm(page, player_idx)
+    max_rounds = snap.get("max_rounds", MAX_ROUNDS)
+    cur_model = snap["me"]["model"]
+    par_by_round = {1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 5, 8: 7}
+    par = par_by_round.get(round_n, 0)
+    tempo_line = (
+        f"Round {round_n}/{max_rounds}. Game ends after round {max_rounds} OR "
+        f"the round any player hits Model V7. You are at V{cur_model}; "
+        f"the par for this round is V{par}. "
+    )
+    if cur_model < par:
+        tempo_line += f"You're {par - cur_model} model versions BEHIND par — every wasted round is a loss."
+
+    history = TURN_HISTORY.get(player_idx, [])
+    history_line = ""
+    if history:
+        last_two = ", ".join(f"[{', '.join(h)}]" for h in history)
+        history_line = f"\nYour last {len(history)} round(s) placements (most recent first): {last_two}."
+        if len(history) >= 2 and history[0] == history[1]:
+            history_line += " You played the IDENTICAL sequence twice. Pick a different action this round or justify why the same sequence is still optimal."
+
+    rejections = LAST_REJECTIONS.pop(player_idx, [])
+    rejection_line = ""
+    if rejections:
+        items = []
+        for r in rejections:
+            label = r.get("card_name") or r.get("original_action") or "(unknown)"
+            items.append(f"  - {label}: {r.get('reason', 'unknown reason')}")
+        rejection_line = (
+            "\nLAST ROUND, the engine rejected these plays. Do NOT propose them again "
+            "this turn unless the underlying requirement is now met:\n" + "\n".join(items)
+        )
+
+    sys_prompt = system_prompt_for(player_idx)
+    user_msg = (
+        f"{tempo_line}{history_line}{rejection_line}\n"
+        f"Your state:\n"
+        f"```json\n{json.dumps(snap, indent=2)}\n```\n"
+        f"Return the JSON strategy now."
+    )
+    return snap, sys_prompt, user_msg
+
+
+def execute_player_decision(page, player_idx, round_n, snap, reply):
+    """Phase 3 of a player's turn: parse the LLM reply, place workers.
+
+    Mutates Playwright state, so must be called serially across players.
+    Returns the chosen actions list (for logging).
+    """
+    pid = snap["me"]["id"]
+    total_workers = snap["me"]["total_workers"]
+    decision = parse_json_block(reply)
+    placements = parse_decision(decision, total_workers) if decision else []
+    avail_dict = {a: {"available": True} for a in snap.get("available_actions", [])}
+
+    by_n = {p["worker"]: p for p in placements}
+    chosen = []
+    rejections_this_turn = []
+    for n in range(1, total_workers + 1):
+        plan = by_n.get(n, {"worker": n, "action": "raise_funds"})
+        action, rejection = place_with_fallback(
+            page, pid, n,
+            plan.get("action"), plan.get("region"),
+            plan.get("card_id"), plan.get("sub_action"),
+            avail_dict,
+        )
+        if rejection:
+            rejections_this_turn.append(rejection)
+        card_name = None
+        if action == "play_card" and plan.get("card_id") is not None:
+            card_name = page.evaluate("""
+                (cid) => {
+                    const s = Game.localState;
+                    const c = s.components.find(x => x.id === cid);
+                    if (!c) return null;
+                    const d = s.cardDefinitions.find(x => x.id === c.cardDetailsId);
+                    return d ? d.name : null;
+                }
+            """, plan["card_id"])
+        recruit_target = None
+        if action == "recruit":
+            recruit_target = page.evaluate("""
+                (pid) => {
+                    const placements = (Game.localState.workerPlacements || [])
+                        .filter(wp => wp.playerId === pid)
+                        .sort((a, b) => b.workerNumber - a.workerNumber);
+                    return placements.length > 0 ? placements[0].actionType : null;
+                }
+            """, pid)
+        chosen.append({"worker": n, "action": action, "rejection": rejection,
+                       "card_name": card_name, "recruit_target": recruit_target})
+
+    history = TURN_HISTORY.setdefault(player_idx, [])
+    history.insert(0, [a["action"] for a in chosen if a["action"]])
+    del history[2:]
+    if rejections_this_turn:
+        LAST_REJECTIONS.setdefault(player_idx, []).extend(rejections_this_turn)
+    return chosen
 
 
 def play_player_turn(page, player_idx, round_n):
@@ -883,7 +1036,23 @@ def play_player_turn(page, player_idx, round_n):
                     return d ? d.name : null;
                 }
             """, plan["card_id"])
-        chosen.append({"worker": n, "action": action, "rejection": rejection, "card_name": card_name})
+        # recruit places a SECOND worker (the new one) on a target action.
+        # Surface what the engine actually placed it on. When the LLM omits
+        # `sub_action`, the engine defaults to "marketing" (game-engine.js
+        # line 1079), so reading back the placement gives the truth.
+        recruit_target = None
+        if action == "recruit":
+            recruit_target = page.evaluate("""
+                (pid) => {
+                    const placements = (Game.localState.workerPlacements || [])
+                        .filter(wp => wp.playerId === pid)
+                        .sort((a, b) => b.workerNumber - a.workerNumber);
+                    // The newly-recruited worker is the highest workerNumber.
+                    return placements.length > 0 ? placements[0].actionType : null;
+                }
+            """, pid)
+        chosen.append({"worker": n, "action": action, "rejection": rejection,
+                       "card_name": card_name, "recruit_target": recruit_target})
 
     # Record this round's chosen action list for the anti-deadlock hint
     # on the player's next turn. Capped to the 2 most recent.
@@ -988,6 +1157,18 @@ def run():
                 print("  (game already finished)")
                 break
 
+            if BRIDGE_PARALLEL:
+                # Build prompts for ALL players first (read-only on Playwright)
+                prompt_bundle = []
+                for pid_idx in range(n_players):
+                    snap, sys_p, user_m = build_player_decision_prompt(page, pid_idx, round_n)
+                    prompt_bundle.append((pid_idx, snap, sys_p, user_m))
+                # Dispatch LLM calls in parallel
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=n_players) as ex:
+                    futures = {pid_idx: ex.submit(ask_llm, sys_p, user_m)
+                               for pid_idx, _, sys_p, user_m in prompt_bundle}
+                    replies = {pid_idx: futures[pid_idx].result() for pid_idx, _, _, _ in prompt_bundle}
             for pid_idx in range(n_players):
                 # In this local game, all seats share the same UI/state.
                 # Switch the dashboard to whichever player is acting.
@@ -995,17 +1176,25 @@ def run():
                 page.locator("#player-select").select_option(label=player_name)
                 time.sleep(0.2)
                 t0 = time.time()
-                actions = play_player_turn(page, pid_idx, round_n)
+                if BRIDGE_PARALLEL:
+                    _, snap, _, _ = next(b for b in prompt_bundle if b[0] == pid_idx)
+                    actions = execute_player_decision(page, pid_idx, round_n, snap, replies[pid_idx])
+                else:
+                    actions = play_player_turn(page, pid_idx, round_n)
                 dt = time.time() - t0
                 persona_label, _ = persona_for(pid_idx)
                 tag = f"{player_name} ({persona_label})" if USE_PERSONAS else player_name
                 # Stringify each action; for play_card, append the card name
-                # if we resolved one ("play_card:Back to Office Policy").
+                # ("play_card:Back to Office Policy"). For recruit, append
+                # the recruit_target ("recruit→marketing") so stat deltas
+                # from the implicit second placement are visible.
                 rendered = []
                 for a in actions:
                     s = a["action"] or "?"
                     if s == "play_card" and a.get("card_name"):
                         s = f"play_card:{a['card_name']}"
+                    elif s == "recruit" and a.get("recruit_target"):
+                        s = f"recruit→{a['recruit_target']}"
                     rendered.append(s)
                 print(f"  {tag}: {rendered}  ({dt:.1f}s)")
 
@@ -1061,8 +1250,11 @@ def run():
         # ────────── End-of-game audit: VP reconciliation + summary
         end_audit = audit_game_end(page)
         log("agent.4 engine audit clean (no invariant violations)",
-            len(AUDIT_FINDINGS) == 0,
-            f"{len(AUDIT_FINDINGS)} audit findings across game")
+            len(INVARIANT_FINDINGS) == 0,
+            f"{len(INVARIANT_FINDINGS)} engine-invariant findings across game")
+        if LLM_REJECTIONS:
+            print(f"\n  INFO  {len(LLM_REJECTIONS)} LLM rule-violations rejected by engine "
+                  "(fed back to agents via LAST_REJECTIONS — not engine bugs)")
         if end_audit and end_audit.get("leaderboard"):
             print("\n── Final Leaderboard ──")
             for row in end_audit["leaderboard"]:

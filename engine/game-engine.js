@@ -467,14 +467,18 @@ const Engine = {
             subsidy_tokens: player.subsidyTokens,
             income: player.income,
             // power evolves through marketing / train_model / buy_chips-with-BCE
-            // so validators that gate on power (patent_troll: ≥5, phishing: ≥10)
-            // see the right value for later-worker placements in a multi-action
-            // turn.
+            // AND through play_card (via CardProjections) so validators that
+            // gate on power (patent_troll: ≥5, phishing: ≥10) see the right
+            // value for later-worker placements in a multi-action turn.
             power: player.power,
             // Projected board slots, so the next recruit/scale cost reflects
             // multi-action sequences and any prior losses.
             worker_board_slots: [...(player.workerBoardSlots || [])],
             presence_board_slots: [...(player.presenceBoardSlots || [])],
+            // Read-only hint for projection functions that need to know which
+            // player's perspective they're computing (e.g. hire_ethicist scans
+            // opponent regions).
+            _playerId: playerId,
         };
         // Big Compute Energy adds +N power per compute increase this round
         // (set on the player when the card is played; persists for the round).
@@ -564,6 +568,25 @@ const Engine = {
                         // Each upgrade: +1 power per 2 regions (per per-region if Model Hype active).
                         const pgain = hypeActive ? projected.presence_count : Math.floor(projected.presence_count / 2);
                         projected.power = this.clampPower(projected.power + pgain);
+                    }
+                }
+            } else if (p.actionType === "play_card" && p.targetCardId != null) {
+                // Look up the card def and apply its registered projection,
+                // if any. Cards that lack a CardProjections entry are
+                // "dynamic" (target-only, draws, passive mods) and don't
+                // affect projected state — their requirements are validated
+                // at resolution time only.
+                const card = state.components.find(c => c.id === p.targetCardId);
+                const def = card && state.cardDefinitions.find(d => d.id === card.cardDetailsId);
+                const slug = def && def.effectSlug;
+                const projFn = (typeof CardProjections !== "undefined") && slug ? CardProjections[slug] : null;
+                if (projFn) {
+                    try {
+                        projFn(projected, state, def, p.targetSubAction);
+                    } catch (e) {
+                        // Projection should never throw; if it does, skip so
+                        // validation falls back to base state rather than
+                        // crashing the placement flow.
                     }
                 }
             }
